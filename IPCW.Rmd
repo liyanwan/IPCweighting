@@ -76,11 +76,13 @@ get_cont_X <- function(X, distribution, num_obs, para1, para2,name){
     partial = rexp(num_obs, para1)
     mean = 1/para1
   }
+  
   if (ncol(X) == 0) {
     X = data.frame(partial)
   } else {
     X <- cbind(X, partial)
   }
+  
   colnames(X)[ncol(X)] = name
   mean_X <<- c(mean_X, mean)
   return(X)
@@ -141,7 +143,6 @@ naive_estimate <- function(dt, time_point, var_name){
   #   var_name: A vector containing the names of all covariates to be included in the model.
   # Returns:
   #   A vector of predicted survival probabilities for each observation at the specified time point.
-  true_surv_naive = true_survival_function(dt$lambda,time_point)
   naive_data = dt[!is.na(dt$E),]  # drop observations with unknown E
   formula_str <- paste("E ~", paste(var_name, collapse = " + "))
   formula <- as.formula(formula_str)
@@ -154,6 +155,16 @@ naive_estimate <- function(dt, time_point, var_name){
 ```
 
 ```{r}
+cox_estimate<-function(dt,time_point, var_name){
+  formula_var = paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + "))
+  formula <- as.formula(formula_var)
+  cox_model = coxph(formula, data = dt)
+  coxph_pred_prob = predict(cox_model, newdata = data.frame(sigma=dt$sigma,X1=dt$X1,X2=dt$X2, observed_time=rep(time_point, times=length(dt$sigma))), type="survival")
+  return(coxph_pred_prob)
+}
+```
+
+```{r}
 ipcw_estimate <- function(dt,time_point, var_name){
   # Estimates survival probability at a given time point using a naive logistic regression approach with IPCW.
   # Arguments:
@@ -162,7 +173,6 @@ ipcw_estimate <- function(dt,time_point, var_name){
   # Returns:
   #   A vector of predicted survival probabilities for each observation at the specified time point with IPCW.
   full_dt = dt
-  true_surv_ipcw = true_survival_function(dt$lambda,time_point)
   #Apply Kaplan-Meier estimator of the survival distribution of the censoring times
   km_censor_Xi = survfit(Surv(observed_time, 1-sigma)~1, data = full_dt)
   survest_Xi = stepfun(km_censor_Xi$time, c(1, km_censor_Xi$surv))
@@ -237,9 +247,15 @@ dt$E = get_status(dt$observed_time, dt$sigma, time_point)
 
 true_surv = true_survival_function(dt$lambda,time_point)
 kakaka = naive_estimate(dt,time_point,var_name)
+View(data.frame(dt$lambda,dt$X1,dt$X2,dt$sigma, dt$observed_time,kakaka,true_surv))
+
 wulala = ipcw_estimate(dt,time_point, var_name)
+View(data.frame(dt$lambda,dt$X1,dt$X2,dt$sigma, dt$observed_time,wulala,true_surv))
+
+newnew = cox_estimate(dt,time_point, var_name)
 ols_naive = ols_error(true_surv,kakaka)
 ols_ipcw = ols_error(true_surv,wulala)
+ols_coxph = ols_error(true_surv,newnew)
 print(paste("sigma ==1 prop",sum(dt$sigma==1)/length(dt$sigma)))
 print(paste("E==1 prop: ", sum(dt$E==1,na.rm=TRUE)/length(dt$E)))
 print(paste("E==0 prop: ", sum(dt$E==0,na.rm=TRUE)/length(dt$E)))
