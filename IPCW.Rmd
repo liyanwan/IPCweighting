@@ -155,11 +155,11 @@ naive_estimate <- function(dt, time_point, var_name){
 ```
 
 ```{r}
-cox_estimate<-function(dt,time_point, var_name){
+cox_estimate<-function(dt,newdt, var_name){
   formula_var = paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + "))
   formula <- as.formula(formula_var)
   cox_model = coxph(formula, data = dt)
-  coxph_pred_prob = predict(cox_model, newdata = data.frame(sigma=dt$sigma,X1=dt$X1,X2=dt$X2, observed_time=rep(time_point, times=length(dt$sigma))), type="survival")
+  coxph_pred_prob = predict(cox_model, newdata = newdt, type="survival")
   return(coxph_pred_prob)
 }
 ```
@@ -186,6 +186,16 @@ ipcw_estimate <- function(dt,time_point, var_name){
   ipcw_pred_prob <- 1-(predict(ipcw_logistic_model, newdata = dt[var_name], type = "response"))
   return(ipcw_pred_prob)
 }
+```
+
+```{r}
+censor_cond <- function(dt,var_name){
+  newdt = dt[is.na(dt$E),]
+  df = subset(newdt, select = -c(event_time, censor_time))
+  denominator = cox_estimate(dt,df,var_name)
+  return(denominator)
+}
+  
 ```
 
 
@@ -252,7 +262,18 @@ View(data.frame(dt$lambda,dt$X1,dt$X2,dt$sigma, dt$observed_time,kakaka,true_sur
 wulala = ipcw_estimate(dt,time_point, var_name)
 View(data.frame(dt$lambda,dt$X1,dt$X2,dt$sigma, dt$observed_time,wulala,true_surv))
 
-newnew = cox_estimate(dt,time_point, var_name)
+new_dt = data.frame(dt[,var_name], sigma = dt$sigma, observed_time=rep(time_point, times=length(dt$sigma)))
+newnew = cox_estimate(dt,new_dt, var_name)
+
+censor_cond_prob = censor_cond(dt,var_name)
+indices = which(is.na(dt$E))
+View(dt)
+cond_prob_censor_timepoint = newnew[indices]
+cond_prob_censor = cond_prob_censor_timepoint/censor_cond_prob
+cond_censor_error = ols_error(true_surv[indices],cond_prob_censor)
+uncensor_error = ols_error(true_surv[indices],newnew[indices])
+sum(cond_censor_error,uncensor_error)
+
 ols_naive = ols_error(true_surv,kakaka)
 ols_ipcw = ols_error(true_surv,wulala)
 ols_coxph = ols_error(true_surv,newnew)
