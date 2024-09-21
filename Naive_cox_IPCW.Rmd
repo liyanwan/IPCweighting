@@ -1,0 +1,77 @@
+---
+title: "Naive_IPCW"
+author: "Liyan Wang"
+date: "2024-09-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+knitr::purl("~/IPCweighting/IPCW.Rmd", output = "~/IPCweighting/IPCW.R")
+source("~/IPCweighting/IPCW.R")
+```
+
+# Experiments
+```{r}
+library(survival)
+library(dplyr)
+num_obs = 200
+dt = data.frame()
+```
+
+# Generate Covariates
+```{r}
+X = matrix(ncol = 0, nrow = 0)
+mean_X = c()
+X = get_cont_X(X, 'uniform',num_obs,1,4,"X1")
+X = get_cont_X(X, 'uniform',num_obs,0.2,1,"X2")
+```
+
+```{r}
+time_point = 5
+lambda_true = 0.01
+beta = sim_beta(0, 0.6, time_point, mean_X)
+seed = 4
+if (ncol(X)!=length(beta)){
+  stop("X and beta are not multiplicable")
+}
+
+lambda = exp(rowSums(sweep(X,2,beta,"*")))
+dt = data.frame(lambda = lambda)
+dt = cbind(dt,X)
+var_name = colnames(X)
+dt$event_time = get_T("exponential",num_obs, dt$lambda,seed)
+
+# uncensor_prop>0.5, expected censored time > expected event time
+#uncensor_prop>0.5, expected censored time < expected event time
+uncensor_prop = runif(1,0.55,0.65)
+dt$censor_time = get_C("exponential",num_obs, uncensor_prop, lambda,seed)
+dt$observed_time = pmin(dt$event_time, dt$censor_time)
+dt$sigma = as.numeric(dt$event_time<dt$censor_time)
+dt$E = get_status(dt$observed_time, dt$sigma, time_point)
+
+true_surv = true_survival_function(dt$lambda,time_point)
+kakaka = naive_estimate(dt,time_point,var_name)
+# View(data.frame(dt$lambda,dt$X1,dt$X2,dt$sigma, dt$observed_time,kakaka,true_surv))
+
+wulala = ipcw_estimate(dt,time_point, var_name)
+# View(data.frame(dt$lambda,dt$X1,dt$X2,dt$sigma, dt$observed_time,wulala,true_surv))
+
+new_dt = data.frame(dt[,var_name], sigma = dt$sigma, observed_time=rep(time_point, times=length(dt$sigma)))
+newnew = cox_estimate(dt,new_dt, var_name)
+
+formula_var = paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + "))
+formula = as.formula(formula_var)
+cox_model = coxph(formula, data = dt)
+coxph_pred_prob = predict(cox_model, newdata = new_dt, type="survival")
+exp_surv_prob = exp(-time_point * lambda_true * exp(predict(cox_model, dt[var_name],type="lp")))
+ols_part1 = ols_error(true_surv,exp_surv_prob)
+ols_coxph = ols_error(true_surv,newnew)
+
+ols_naive = ols_error(true_surv,kakaka)
+ols_ipcw = ols_error(true_surv,wulala)
+
+# print(paste("sigma ==1 prop",sum(dt$sigma==1)/length(dt$sigma)))
+# print(paste("E==1 prop: ", sum(dt$E==1,na.rm=TRUE)/length(dt$E)))
+# print(paste("E==0 prop: ", sum(dt$E==0,na.rm=TRUE)/length(dt$E)))
+```
