@@ -114,6 +114,12 @@ best_intervals = results$intervals[which.min(results$performance)]
 print(paste("Optimal number of intervals:", best_intervals))
 ```
 
+```{r}
+opt_interval = seq(0, time_point, length.out = best_intervals + 1)
+multi_ipcw_model = multilayer_ipcw(opt_interval, dt)
+multi_layer_ipcw_pred_prob = 1-(predict(multi_ipcw_model, newdata = dt[var_name], type = "response"))
+ols_multi_ipcw = ols_error(true_surv, (multi_layer_ipcw_pred_prob)^best_intervals)
+```
 
 
 
