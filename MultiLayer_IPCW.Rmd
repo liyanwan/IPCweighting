@@ -6,8 +6,10 @@ output: html_document
 ---
 ```{r}
 rm(list = ls())
-knitr::purl("~/IPCweighting/IPCW.Rmd", output = "~/IPCweighting/IPCW.R")
-source("~/IPCweighting/IPCW.R")
+library(survival)
+library(dplyr)
+knitr::purl("~/IPCweighting/IPCWmethod.Rmd", output = "~/IPCweighting/IPCWmethod.R")
+source("~/IPCweighting/IPCWmethod.R")
 ```
 
 
@@ -68,11 +70,10 @@ multilayer_ipcw<-function(interval,train_data){
     batch = train_data[train_data$observed_time>start,]
     batch$E = NULL
     batch$E = get_status(batch$observed_time,batch$sigma,end)
-    ifelse(batch$observed_time<end, batch$observed_time,end)
+    # ifelse(batch$observed_time<end, batch$observed_time,end)
     batch$G = ifelse(batch$observed_time<end, Ghat(batch$observed_time),Ghat(end))
-    column_name = "IPCW"
-    batch[[column_name]] = ifelse(pmin(batch$event_time, end)<batch$censor_time, 
-                                  1/batch$G, 
+    batch$IPCW = ifelse(pmin(batch$event_time, end)<batch$censor_time, 
+                                  numerator/batch$G, 
                                   0)
     if (ncol(total) == 0) {
       total = data.frame(batch)
@@ -90,7 +91,6 @@ multilayer_ipcw<-function(interval,train_data){
 
 ```{r, warning=FALSE}
 library(caret)
-library(dplyr)
 time_point = 5
 max_intervals = 20
 k = 5
