@@ -5,73 +5,133 @@ date: "2024-09-21"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+```{r}
 rm(list = ls())
-knitr::purl("~/IPCweighting/IPCW.Rmd", output = "~/IPCweighting/IPCW.R")
-source("~/IPCweighting/IPCW.R")
+knitr::purl("~/IPCweighting/IPCWmethod.Rmd", output = "~/IPCweighting/IPCWmethod.R")
+source("~/IPCweighting/IPCWmethod.R")
 ```
 
 # Experiments
 ```{r}
 library(survival)
 library(dplyr)
-num_obs = 200
-dt = data.frame()
+num_obs = 300
+seed = 60
+uncensor_prop = runif(1,0.55,0.65)
+dist = "Weibull"
+naive_performance = numeric(seed)
+ipcw_performance = numeric(seed)
+cox_true_param_performance = numeric(seed)
+cox_est_blh_performance = numeric(seed)
+# true_U = c()
 ```
 
 # Generate Covariates
 ```{r}
+for (i in 1:seed){
+dt = data.frame()
+true_surv = c()
 X = matrix(ncol = 0, nrow = 0)
 mean_X = c()
-X = get_cont_X(X, 'uniform',num_obs,1,4,"X1")
-X = get_cont_X(X, 'uniform',num_obs,0.2,1,"X2")
-```
-
-```{r}
+X = get_cont_X(X, 'uniform',num_obs,1,7,"X1")
+X = get_cont_X(X, 'uniform',num_obs,0.2,4,"X2")
 time_point = 5
-lambda_true = 0.01
-beta = sim_beta(0, 0.6, time_point, mean_X)
-seed = 4
+lambda_base = 2
+beta = sim_beta(log(lambda_base), 0.6, time_point, mean_X)
 if (ncol(X)!=length(beta)){
   stop("X and beta are not multiplicable")
 }
 
-lambda = exp(rowSums(sweep(X,2,beta,"*")))
-dt = data.frame(lambda = lambda)
+# lambda = lambda_true*exp(rowSums(sweep(X,2,beta,"*")))
+dt = data.frame(power = exp(rowSums(sweep(X,2,beta,"*"))))
 dt = cbind(dt,X)
 var_name = colnames(X)
-dt$event_time = get_T("exponential",num_obs, dt$lambda,seed)
 
-# uncensor_prop>0.5, expected censored time > expected event time
-#uncensor_prop>0.5, expected censored time < expected event time
-uncensor_prop = runif(1,0.55,0.65)
-dt$censor_time = get_C("exponential",num_obs, uncensor_prop, lambda,seed)
+if(dist=="exponential"){
+  dt$event_time = given_xbeta("exponential",num_obs, list(lambda_base = lambda_base,
+                                                          lc = rowSums(sweep(X,2,beta,"*"))))
+  dt$censor_time = get_C("exponential",num_obs, list(lambda_base = lambda_base,
+                                                     lc = rowSums(sweep(X,2,beta,"*"))))
+  true_surv = true_survival_function("exponential",time_point,list(lambda_base = lambda_base*dt$power))
+} else if (dist == "Weibull"){
+  alpha=2
+  dt$event_time = given_xbeta("Weibull",
+                               num_obs, 
+                               list(lambda_base = lambda_base,
+                                    alpha = alpha, # if lambda>1, alpha can be smaller
+                                    lc = rowSums(sweep(X,2,beta,"*"))))
+  dt$censor_time = get_C("Weibull",num_obs, list(lambda_base = lambda_base, alpha = alpha))
+  true_surv = (true_survival_function(dist, time_point, params = list(lambda_base = lambda_base,alpha = alpha)))^exp(rowSums(sweep(dt[var_name],2,beta,"*")))
+} else if (dist=="log-logistic"){
+  alpha=1.2
+  lambda_base = 4
+  dt$event_time = given_xbeta("Weibull",
+                               num_obs, 
+                               list(lambda_base = lambda_base,
+                                    alpha = alpha, # if lambda>1, alpha can be smaller
+                                    lc = rowSums(sweep(X,2,beta,"*"))))
+  dt$censor_time = get_C("log-logistic",num_obs, list(lambda_base = lambda_base, alpha = alpha))
+  true_surv = (true_survival_function(dist, time_point, params = list(lambda_base = lambda_base,alpha = alpha)))^exp(rowSums(sweep(dt[var_name],2,beta,"*")))
+}else if(dist == "log-normal"){
+  mean = 2
+  sd = 0.8
+  dt$event_time = given_xbeta("log-normal",
+                               num_obs, 
+                               list(mean = mean,
+                                    sd = sd, 
+                                    lc = rowSums(sweep(X,2,beta,"*"))))
+  dt$censor_time = get_C("log-normal",num_obs, list(mean = mean, sd = sd))
+  true_surv = (true_survival_function(dist, time_point, params = list(mean = mean,sd = sd))) ^exp(rowSums(sweep(dt[var_name],2,beta,"*")))
+}
+
+
+
 dt$observed_time = pmin(dt$event_time, dt$censor_time)
 dt$sigma = as.numeric(dt$event_time<dt$censor_time)
 dt$E = get_status(dt$observed_time, dt$sigma, time_point)
 
-true_surv = true_survival_function(dt$lambda,time_point)
 kakaka = naive_estimate(dt,time_point,var_name)
-# View(data.frame(dt$lambda,dt$X1,dt$X2,dt$sigma, dt$observed_time,kakaka,true_surv))
-
 wulala = ipcw_estimate(dt,time_point, var_name)
-# View(data.frame(dt$lambda,dt$X1,dt$X2,dt$sigma, dt$observed_time,wulala,true_surv))
-
 new_dt = data.frame(dt[,var_name], sigma = dt$sigma, observed_time=rep(time_point, times=length(dt$sigma)))
-newnew = cox_estimate(dt,new_dt, var_name)
 
 formula_var = paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + "))
 formula = as.formula(formula_var)
-cox_model = coxph(formula, data = dt)
-coxph_pred_prob = predict(cox_model, newdata = new_dt, type="survival")
-exp_surv_prob = exp(-time_point * lambda_true * exp(predict(cox_model, dt[var_name],type="lp")))
-ols_part1 = ols_error(true_surv,exp_surv_prob)
-ols_coxph = ols_error(true_surv,newnew)
+cox_model = coxph(formula, data = dt,method="breslow")
+lp = rowSums(sweep(dt[var_name],2,as.vector(cox_model$coefficients),"*"))
+part1_prob = exp(-lambda_base*exp(lp)*time_point)
+# part1_prob = (true_survival_function(dist, time_point, params = list(lambda_base = lambda_base,alpha = alpha)))^(exp(lp))
+# part1_prob = (true_survival_function(dist, time_point, params = list(mean = mean,sd = sd)))^(exp(lp))
+ols_part1 = ols_error(true_surv,part1_prob)
+
+baseline_hazard = basehaz(cox_model,centered=FALSE)
+BLH_timepoint = baseline_hazard$hazard[which.min(abs(baseline_hazard$time - time_point))]
+part3_prob = exp(-BLH_timepoint*exp(lp))
+ols_part3 = ols_error(true_surv,part3_prob)
+
+# ols_coxph = ols_part3
+coxph_pred_prob = cox_estimate(dt,new_dt,var_name)
+ols_coxph = ols_error(true_surv,coxph_pred_prob)
 
 ols_naive = ols_error(true_surv,kakaka)
 ols_ipcw = ols_error(true_surv,wulala)
 
-# print(paste("sigma ==1 prop",sum(dt$sigma==1)/length(dt$sigma)))
-# print(paste("E==1 prop: ", sum(dt$E==1,na.rm=TRUE)/length(dt$E)))
-# print(paste("E==0 prop: ", sum(dt$E==0,na.rm=TRUE)/length(dt$E)))
+
+naive_performance[i]= ols_naive
+ipcw_performance[i] = ols_ipcw
+cox_true_param_performance[i]= ols_part1
+cox_est_blh_performance[i] = ols_part3
+
+print(paste("E1",sum(dt$E==1, na.rm=TRUE)))
+print(paste("E0",sum(dt$E==0, na.rm=TRUE)))
+print(paste("Eunknown",sum(is.na(dt$E))))
+print(paste("sigma",sum(dt$sigma==1)))
+}
+
+print(paste("naive estimate ols error is: ", mean(naive_performance)))
+print(paste("ipcw estimate ols error is: ", mean(ipcw_performance)))
+print(paste("cox ph estimate ols error (model 1) is: ", mean(cox_true_param_performance)))
+print(paste("cox ph estimate ols error (model 3) is: ", mean(cox_est_blh_performance)))
+
+
 ```
+
