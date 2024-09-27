@@ -1,19 +1,19 @@
 ```{r setup, include=FALSE}
 rm(list = ls())
-# knitr::purl("~/IPCweighting/IPCWmethod.Rmd", output = "~/IPCweighting/IPCWmethod.R")
-# source("~/IPCweighting/IPCWmethod.R")
 ```
 
 ```{r}
 true_survival_function <- function(dist,time,params = list()){
+  # Exponential S(t) = exp(-lambda*t)
+  # Weibull S(t) = exp(-(lambda*t)^alpha)
+  # Log Normal S(t) = 1-CDF((ln(t) - mean)/sd), CDF() here is the CDF of standard normal
+  # Log Logistic S(t) = 1/(1+(lambda*t)^alpha)
     if (dist == "exponential") {
     return(exp(-params$lambda_base * time))
   } else if (dist == "Weibull") {
     return(exp(-(params$lambda_base * time)^params$alpha))
   } else if (dist == "log-normal") {
-    # plnorm(time, r, lower = FALSE, log = TRUE)
     return(exp(plnorm(time, meanlog = params$mean, sdlog = params$sd, lower = FALSE, log = TRUE)))
-    # return(1 - plnorm(time, meanlog = params$mean, sdlog = params$sd))
   } else if (dist == "log-logistic") {
     return(1 / (1 +(params$lambda_base * time)^params$alpha))
   } else {
@@ -28,7 +28,7 @@ ols_error <- function(true_surv, est_surv) {
 
 ```{r}
 get_status <- function(observed_time, sigma, time_point){
-  # Calculate the time_point-year event status
+  # Calculate the time_point-year event status. The common symbol is E
   # Arguments:
   #   observed_time: Numeric vector of observed times.
   #   sigma: Numeric vector indicating censoring status (1: uncensored, 0: censored).
@@ -61,21 +61,27 @@ get_cat_X <- function(X, num_obs, values, probs, name){
 
 get_cont_X <- function(X, distribution, num_obs, para1, para2, name) {
   if (distribution == 'uniform') {
-    ifelse(para1 < para2, 
-           partial <- runif(num_obs, para1, para2), 
-           stop("Error: 'para1' must be less than 'para2' for uniform distribution."))
+    if(para1<para2){
+      partial = runif(num_obs, para1, para2)
+    } else{
+      stop("Error: 'para1' must be less than 'para2' for uniform distribution.")
+    }
     mean <- (para2 + para1) / 2
     
   } else if (distribution == "gaussian") {
-    ifelse(para2 > 0, 
-           partial <- rnorm(num_obs, para1, para2), 
-           stop("Error: 'para2' (standard deviation) must be positive for Gaussian distribution."))
+    if(para2 > 0){
+      partial = rnorm(num_obs, para1, para2)
+    } else{
+      stop("Error: 'para2' (standard deviation) must be positive for Gaussian distribution.")
+    }
     mean <- para1
     
   } else if (distribution == 'exponential') {
-    ifelse(para1 > 0, 
-           partial <- rexp(num_obs, para1), 
-           stop("Error: 'para1' (rate) must be positive for exponential distribution."))
+    if(para1 > 0){
+      partial = rexp(num_obs, para1)
+    } else{
+      stop("Error: 'para1' (rate) must be positive for exponential distribution.")
+    }
     mean <- 1 / para1
   } else {
     stop("Error: Unsupported distribution. Choose 'uniform', 'gaussian', or 'exponential'.")
@@ -85,142 +91,92 @@ get_cont_X <- function(X, distribution, num_obs, para1, para2, name) {
   } else {
     X <- cbind(X, partial)
   }
-  colnames(X)[ncol(X)] <- name
+  colnames(X)[ncol(X)] = name
   mean_X <<- c(mean_X, mean)
   return(X)
 }
 ```
 
 ```{r}
-get_T_without_cov <- function(dist = "exponential", n, params = list()){
-    if (dist == "exponential") {
+sim_censor_time <- function(dist = "exponential", n, params = list()){
+  # Simulate censoring time
+  if (dist == "exponential") {
     if (!is.null(params$lambda)) {
       return(rexp(n, rate = params$lambda))
     }
-  } else if (dist == "Weibull") {
+    else{
+      stop("Please input the correct parameters.")
+    }
+  } 
+  else if (dist == "Weibull") {
     if (!is.null(params$lambda) & !is.null(params$alpha)) {
       return(rweibull(n, shape = params$alpha, scale = 1/params$lambda))
     }
-  } else if (dist == "log-logistic") {
+    else{
+      stop("Please input the correct parameters.")
+    }
+  } 
+  else if (dist == "log-logistic") {
     # Log-logistic distribution using qlogis for quantiles
     if (!is.null(params$lambda) & !is.null(params$alpha)) {
       u <- runif(n)
-      return((1/(params$lambda)) * (u / (1 - u))^(1 / params$alpha))
+      return((1/(params$lambda))* (u / (1 - u))^(1 / params$alpha))
     }
-  } else if (dist == "log-normal") {
-    # Log-normal distribution
+    else{
+      stop("Please input the correct parameters.")
+    }
+  } 
+  else if (dist == "log-normal") {
     if (!is.null(params$mean) & !is.null(params$sd)) {
       return(rlnorm(n, meanlog = params$mean, sdlog = params$sd))
     }
-  } else {
+    else{
+      stop("Please input the correct parameters.")
+    }
+  } 
+  else if (dist == "uniform"){
+    if(!is.null(params$start) & !is.null(params$end)){
+      censor_time = runif(n, params$start,params$end)
+    }
+    else{
+      stop("Please input the correct parameters.")
+    }
+  } 
+  else {
     stop("Unsupported distribution")
-  }
+}
 }
 ```
 
 ```{r}
-get_C <- function(dist, num_obs, params=list()){
-  if(dist == "exponential"){
-    censor_time = rexp(num_obs, rate = (0.15*(params$lambda_base)))
-  }
-  else if(dist == "Weibull"){
-    if(params$alpha>1){
-      censor_time = rexp(num_obs, rate = 0.1*params$alpha)#*exp(params$lc)))
-    }
-  else if (params$alpha<=1){
-    censor_time = rexp(num_obs, rate = 1.5*params$alpha)#*exp(params$lc)))
-    }
-  }
-  else if(dist == "log-logistic"){
-    if(params$alpha>1){
-      censor_time = rexp(num_obs, rate = 0.1*params$alpha)# 0.3*(params$lalpha))#*exp(params$lc)))
-    }
-  else if (params$alpha<=1){
-    print(params$alpha)
-    censor_time = rexp(num_obs, rate = 1.5*params$alpha)#*exp(params$lc)))
-    }
-  }
-  else if(dist == "log-normal"){
-    censor_time = rlnorm(num_obs, meanlog = params$mean*1.4, sdlog = 2.5*params$sd)
-  } else{
-    stop("Unsupported distribution")
-  }
-  return(censor_time)
-}
-```
-
-```{r}
-naive_estimate <- function(dt, time_point, var_name){
-  # Estimates survival probability at a given time point using a naive logistic regression approach.
-  # Arguments:
-  #   time_point: Numeric value specifying the time point of interest.
-  #   var_name: A vector containing the names of all covariates to be included in the model.
-  # Returns:
-  #   A vector of predicted survival probabilities for each observation at the specified time point.
-  naive_data = dt[!is.na(dt$E),]  # drop observations with unknown E
-  # print(dim(naive_data))
-  formula_str = paste("E ~", paste(var_name, collapse = " + "))
-  formula <- as.formula(formula_str)
-  naive_model = glm(formula, data = naive_data, family = binomial)  
-  naive_pred_prob = 1-(predict(naive_model, newdata = dt[var_name], type = "response"))
-  return(naive_pred_prob)
-}
-```
-
-```{r}
-cox_estimate<-function(dt,newdt, var_name){
-  formula_var = paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + "))
-  formula = as.formula(formula_var)
-  cox_model = coxph(formula, data = dt)
-  coxph_pred_prob = predict(cox_model, newdata = newdt, type="survival")
-  return(coxph_pred_prob)
-}
-```
-
-```{r}
-ipcw_estimate <- function(dt,time_point, var_name){
-  # Estimates survival probability at a given time point using a naive logistic regression approach with IPCW.
-  # Arguments:
-  #   time_point: Numeric value specifying the time point of interest.
-  #   var_name: A vector containing the names of all covariates to be included in the model.
-  # Returns:
-  #   A vector of predicted survival probabilities for each observation at the specified time point with IPCW.
-  full_dt = dt
-  #Apply Kaplan-Meier estimator of the survival distribution of the censoring times
-  km_censor_Xi = survfit(Surv(observed_time, 1-sigma)~1, data = full_dt)
-  survest_Xi = stepfun(km_censor_Xi$time, c(1, km_censor_Xi$surv))
-  censor_prob_Xi = survest_Xi(ifelse(full_dt$observed_time<time_point, full_dt$observed_time,time_point))
-  # Compute \hat{G(min(observed_time, time_point))}
-  full_dt$G_hat_Vi = censor_prob_Xi
-  full_dt$IPCW = ifelse(pmin(full_dt$event_time, time_point)<full_dt$censor_time, 1/full_dt$G_hat_Vi, 0) # Compute weights
-  # print(full_dt$IPCW)
-  # View(full_dt)
-  formula_str = paste("E ~", paste(var_name, collapse = " + "))
-  formula = as.formula(formula_str)
-  ipcw_logistic_model = glm(formula, data = full_dt, family = binomial, weights = IPCW)
-  ipcw_pred_prob = 1-(predict(ipcw_logistic_model, newdata = dt[var_name], type = "response"))
-  return(ipcw_pred_prob)
-}
-```
-
-```{r}
-sim_beta <- function(beta_0, prop, time_point, mean_X){
-  # Simulates a group of beta coefficients (excluding beta_0) such that E(event time) = prop*time_point
-  # Returns:
-  # The estimated beta coefficients (excluding beta_0) which minimize the sum of squared
-  constant = -log(prop*time_point)-beta_0
+sim_beta <- function(prop, time_point, mean_X){
+  # Simulate true beta (except beta0)
+  # if(dist == "uniform"){
+  #   true_beta = runif(nums, params$start, params$end)
+  # }
+  # else if(dist == "middle-high"){
+  #   true_beta = rlaplace(nums, mu = 0, sigma = params$sigma)
+  # }
+  constant = -log(prop*time_point)
   objective_function <- function(beta, x, constant) {
-  return((sum(x * beta) - constant)^2)
-  }
-  initial_beta <- rep(1, length(mean_X))
-  result <- optim(initial_beta, objective_function, x = mean_X, constant = constant)
-  beta_solution <- result$par
+    return((sum(x * beta) - constant)^2)
+    }
+  initial_beta = rep(1, length(mean_X))
+  result = optim(initial_beta, objective_function, x = mean_X, constant = constant)
+  beta_solution = result$par
   return(beta_solution)
+  
+  return(true_beta)
 }
 ```
 
 ```{r}
 simulate_U <- function(n) {
+  # It is a helper function of sim_T below Simulate S(t|X_i) = U.
+  # U ~ unif(0.01,0.25) with probability 0.4
+  # U ~ unif(0.25, 0.5) with probability 0.35
+  # U ~ unif(0.5, 0.75] with probability 0.15
+  # U ~ unif(0.75, 1) with probability 0.1
   simulated_values = numeric(n)
   probs = c(0.4, 0.35, 0.15, 0.1)
   intervals = matrix(c(0.01, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 0.99), ncol = 2, byrow = TRUE)
@@ -246,28 +202,31 @@ simulate_U <- function(n) {
 ```
 
 ```{r}
-given_xbeta <- function(dist, n, params=list()){
+sim_T <- function(dist, n, params=list(), U_notuni){
+  # Simulate event time based on baseline survival function
+  # If baseline survival follows exponential distribution, event time is simulated directly
+  # In other cases, simulate events times by suing the inverse of the cumulative hazard function (Using helper function)
   if (dist == "exponential") {
   if (!is.null(params$lambda_base) & !is.null(params$lc)) {
     return(rexp(n, rate = (params$lambda_base*exp(params$lc))))
   }
 } else if (dist == "Weibull") {
   if (!is.null(params$lambda_base) & !is.null(params$alpha)& !is.null(params$lc)) {
-    # return(rweibull(n, shape = params$alpha, scale = 1/params$lambda_base)*exp(params$lc)*params$lc)
-    U = simulate_U(n)
-    # true_U <<- c(true_U,U)
+    if(U_notuni){
+      U = simulate_U(n)
+    } else{
+      U = runif(n, 0, 1)
+    }
     return(1/params$lambda_base*(-log(U)/exp(params$lc))^(1/params$alpha))
   }
 } else if (dist == "log-logistic") {
   if (!is.null(params$lambda_base) & !is.null(params$alpha)) {
     U = simulate_U(n)
-    # true_U <<- c(true_U,U)
     return((1/(params$lambda_base)) * ((1-U^(1/exp(params$lc))) / U^(1/exp(params$lc)))^(1 / params$alpha))
   }
 } else if (dist == "log-normal") {
   if (!is.null(params$mean) & !is.null(params$sd)& !is.null(params$lc)) {
     U = simulate_U(n)
-    # true_U <<- c(true_U,U)
     S_t = 1-U^(1 / exp(params$lc))
     return(exp(qnorm(1 - S_t) * params$sd + params$mean))
   }
@@ -277,5 +236,41 @@ given_xbeta <- function(dist, n, params=list()){
 }
 ```
 
+```{r}
+Get_Ghat <-function(time_point, full_dt){
+  # A helper function, using Kaplan Meier estimator of survival distribution of the censoring times.
+  km_censor = survfit(Surv(observed_time, 1-sigma)~1, data = full_dt)
+  survest_Xi = stepfun(km_censor$time, c(1, km_censor$surv))
+  return(survest_Xi)
+}
+```
 
+```{r}
+check_time_vs_status <- function(dt){
+  # return a table shows the number of E=0, E=1, E unknown, respectively
+  num_E_1 = sum((get_status(dt$observed_time, dt$sigma, 5)) == 1, na.rm = TRUE)
+  num_E_0 = sum((get_status(dt$observed_time, dt$sigma, 5)) == 0, na.rm = TRUE)
+  num_E_unknown = sum(is.na(get_status(dt$observed_time, dt$sigma, 5)))
+  status_table = data.frame(status = c("E = 1", "E = 0", "E unknown"),
+                            Count = c(num_E_1, num_E_0, num_E_unknown),
+                            stringsAsFactors = FALSE)
+  colnames(status_table)[1] = paste("Status_before_year_", time_point, sep = "")
+  return(status_table)
+}
+```
 
+```{r}
+check_censor_in_time_interval<- function(dt,time_point){
+  # return a table shows the number of observations censored between i-1 and i, where i=1,2,..., time_point
+  result_table =data.frame(Time_Interval = character(),
+                         Count = integer(),
+                         stringsAsFactors = FALSE)
+  for (i in 1:time_point) {
+    count = nrow(dt[dt$sigma == 0 & dt$observed_time >= i - 1 & dt$observed_time <= i, ])
+    result_table = rbind(result_table, 
+                          data.frame(Time_Interval = paste(i-1, "to", i), 
+                                     Count_Censored_Data_in_Time_Tnterval = count))
+  }
+  return(result_table)
+}
+```
