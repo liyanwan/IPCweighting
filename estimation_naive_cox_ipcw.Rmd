@@ -10,10 +10,10 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-naive_estimate <- function(dt, time_point, var_name){
+naive_estimate <- function(dt, newdt, var_name){
   # Estimates survival probability at a given time point using a naive logistic regression approach.
   # Arguments:
-  #   time_point: Numeric value specifying the time point of interest.
+  #   newdt: the dataset that you want to estimate survival probability
   #   var_name: A vector containing the names of all covariates to be included in the model.
   # Returns:
   #   A vector of predicted survival probabilities for each observation at the specified time point.
@@ -21,7 +21,7 @@ naive_estimate <- function(dt, time_point, var_name){
   formula_str = paste("E ~", paste(var_name, collapse = " + "))
   formula <- as.formula(formula_str)
   naive_model = glm(formula, data = naive_data, family = binomial)  
-  naive_pred_prob = 1-(predict(naive_model, newdata = dt[var_name], type = "response"))
+  naive_pred_prob = 1-(predict(naive_model, newdata = newdt[var_name], type = "response"))
   return(naive_pred_prob)
 }
 ```
@@ -43,9 +43,10 @@ cox_estimate<-function(dt,newdt, var_name){
 ```
 
 ```{r}
-ipcw_estimate <- function(dt,time_point, var_name){
+ipcw_estimate <- function(dt,newdt, time_point, var_name){
   # Estimates survival probability at a given time point using a naive logistic regression approach with IPCW.
   # Arguments:
+  #   newdt: the dataset that you want to estimate survival probability
   #   time_point: Numeric value specifying the time point of interest.
   #   var_name: A vector containing the names of all covariates to be included in the model.
   # Returns:
@@ -61,7 +62,7 @@ ipcw_estimate <- function(dt,time_point, var_name){
   formula_str = paste("E ~", paste(var_name, collapse = " + "))
   formula = as.formula(formula_str)
   ipcw_logistic_model = glm(formula, data = full_dt, family = binomial, weights = IPCW)
-  ipcw_pred_prob = 1-(predict(ipcw_logistic_model, newdata = dt[var_name], type = "response"))
+  ipcw_pred_prob = 1-(predict(ipcw_logistic_model, newdata = newdt[var_name], type = "response"))
   return(ipcw_pred_prob)
 }
 ```
