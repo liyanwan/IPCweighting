@@ -40,7 +40,7 @@ plot_pdf <-function(dist, params = list(), time_point){
 
 ```{r}
 num_obs = 1000
-dist = "Weibull"
+dist = "exponential"
 params = list()
 time_point = 5
 if(dist=="exponential"){
@@ -141,7 +141,7 @@ multilayer_ipcw<-function(interval,train_data){
 
 ```{r, warning=FALSE}
 # Cross Validation, binning intervals equally
-max_intervals = 10
+max_intervals = 60
 k = 5
 Ghat = Get_Ghat(time_point, dt)
 folds = createFolds(dt$event_time, k = k)
@@ -172,7 +172,7 @@ plot(x=c(1:max_intervals), y = results$performance, xlab = "Number of Intervals"
 ```{r}
 # Compute 1 bin IPCW ols_error
 true_surv = (true_survival_function(dist, time_point, params = params))^power
-ipcw_est_surv = ipcw_estimate(dt,time_point, var_name)
+ipcw_est_surv = ipcw_estimate(dt,dt, time_point, var_name)
 ols_ipcw = ols_error(true_surv,ipcw_est_surv)
 
 # Compute optimal_bin IPCW ols_error
