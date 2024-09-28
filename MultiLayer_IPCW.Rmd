@@ -19,7 +19,18 @@ source("~/IPCweighting/estimation_naive_cox_ipcw.R")
 
 ```{r}
 plot_pdf <-function(dist, params = list(), time_point){
-  # Used to plot the pdf of the dist distribution, with x ranged from 0 to time_point
+  # Plot the Probability Density Function (PDF) for Various Distributions
+  # Arguments:
+  #   dist: A character string specifying the distribution to plot. 
+  #         Options are c('exponential', 'Weibull', 'log-logistic', and 'log-normal')
+  #   params: A list of distribution-specific parameters:
+  #           - For 'exponential', include 'lambda_base' (rate parameter).
+  #           - For 'Weibull', include 'lambda_base' (1/scale parameter) and 'alpha' (shape parameter).
+  #           - For 'log-logistic', include 'lambda_base' (1/scale parameter) and 'alpha' (shape parameter).
+  #           - For 'log-normal', include 'mean' (mean of the log-scale) and 'sd' (standard deviation of the log-scale).
+  #   time_point: A numeric value as the upper limit of the x-axis.
+  # Returns:
+  #   A ggplot object displaying the PDF of the specified distribution.
   x_values = seq(0, time_point, by = 0.01)
   if(dist == "exponential"){
     pdf = dexp(x_values, rate = params$lambda_base)

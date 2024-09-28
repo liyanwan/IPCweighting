@@ -4,6 +4,21 @@ rm(list = ls())
 
 ```{r}
 true_survival_function <- function(dist,time,params = list()){
+  # This function computes the BASELINE true survival probability for different survival distributions at a given time.
+  # The supported distributions are exponential, Weibull, log-normal, and log-logistic.
+  # Arguments:
+  #   dist: A character string specifying the survival distribution to use. 
+  #         Options of dist: c('exponential', 'Weibull', 'log-normal', or 'log-logistic')
+  #   time: A numeric value representing the time point at which to compute the survival probability.
+  #   params: A list of distribution-specific parameters.
+  #           - For 'exponential', include 'lambda_base' (rate parameter).
+  #           - For 'Weibull', include 'lambda_base' (1/(scale parameter)) and 'alpha' (shape parameter).
+  #           - For 'log-normal', include 'mean' (mean of log-time) and 'sd' (standard deviation of log-time).
+  #           - For 'log-logistic', include 'lambda_base' (1/(scale parameter)) and 'alpha' (shape parameter).
+  #
+  # Returns:
+  #   A numeric value representing the survival probability at the given time.
+  # Below is the formula of baseline survival function
   # Exponential S(t) = exp(-lambda*t)
   # Weibull S(t) = exp(-(lambda*t)^alpha)
   # Log Normal S(t) = 1-CDF((ln(t) - mean)/sd), CDF() here is the CDF of standard normal
@@ -20,7 +35,10 @@ true_survival_function <- function(dist,time,params = list()){
     stop("Error: Unsupported distribution.")
   }
 }
+```
 
+
+```{r}
 ols_error <- function(true_surv, est_surv) {
   return(sum((true_surv - est_surv)^2))
 }
@@ -28,13 +46,17 @@ ols_error <- function(true_surv, est_surv) {
 
 ```{r}
 get_status <- function(observed_time, sigma, time_point){
-  # Calculate the time_point-year event status. The common symbol is E
+  # Calculate the event status at `time_point`, commly denoted as E
   # Arguments:
   #   observed_time: Numeric vector of observed times.
   #   sigma: Numeric vector indicating censoring status (1: uncensored, 0: censored).
   #   time_point: Numeric value specifying the time point of interest.
   # Returns:
-  #   A numeric vector of the same length as observed_time, containing the event indicator
+  #   A numeric vector of the same length as `observed_time`, where each element indicates the event status:
+  #   - 1 if the event happened prior to time_point.
+  #   - 0 if the event did not occur prior to time_point (the observation survived at time_point).
+  #   - unknown if the observation is censored before time_point.
+
   E_obs <- ifelse(observed_time <= time_point & sigma == 1, 1, ifelse(observed_time > time_point, 0, NA))
   return(E_obs)
 }
@@ -42,6 +64,18 @@ get_status <- function(observed_time, sigma, time_point){
 
 ```{r}
 get_cat_X <- function(X, num_obs, values, probs, name){
+  # Generate a Categorical Covariate
+  # This function adds a new categorical covariate to an existing dataframe. 
+  # The covariate takes predefined values with specified probabilities.
+  # Arguments:
+  #   X: A dataframe containing all existing covariates.
+  #   values: A vector specifying the possible categories (values) for the new covariate.
+  #   probs: A numeric vector of probabilities corresponding to each value in 'values'. 
+  #          The probabilities should sum to 1.
+  #   name: A character string specifying the column name for the new categorical covariate.
+  #
+  # Returns:
+  #   A dataframe with the new categorical covariate added as a column.
   if (length(values) != length(probs)) {
     stop("Error: 'values' and 'probs' must have the same length.")
   }
@@ -60,6 +94,23 @@ get_cat_X <- function(X, num_obs, values, probs, name){
 }
 
 get_cont_X <- function(X, distribution, num_obs, para1, para2, name) {
+  # Generate a Continuous Covariate
+  # This function adds a continuous covariate to an existing dataframe based on a specified distribution.
+  # Arguments:
+  #   X: A dataframe containing all existing covariates.
+  #   distribution: A character string specifying the distribution to use for generating the covariate. 
+  #                 Options are c('uniform', 'gaussian', or 'exponential')
+  #   para1: The first parameter for the specified distribution. 
+  #          For 'uniform', this is the lower bound
+  #          for 'gaussian', this is the mean
+  #          for 'exponential', this is the rate.
+  #   para2: The second parameter for the specified distribution. 
+  #          For 'uniform', this is the upper bound
+  #          for 'gaussian', this is the standard deviation. 
+  #          Not used for 'exponential'.
+  #   name: A character string specifying the column name for the new continuous covariate.
+  # Returns:
+  #   A dataframe with the new continuous covariate added as a column.
   if (distribution == 'uniform') {
     if(para1<para2){
       partial = runif(num_obs, para1, para2)
@@ -100,6 +151,18 @@ get_cont_X <- function(X, distribution, num_obs, para1, para2, name) {
 ```{r}
 sim_censor_time <- function(dist = "exponential", n, params = list()){
   # Simulate censoring time
+  # Arguments:
+  #   dist: A character string specifying the distribution to use for simulating the censoring times.
+  #         Options include 'exponential', 'Weibull', 'log-logistic', 'log-normal', and 'uniform'.
+  #   n: An integer specifying the number of censoring times to generate.
+  #   params: A list of distribution-specific parameters:
+  #   - For 'exponential', include 'lambda' (rate parameter).
+  #   - For 'Weibull', include 'lambda' (1/scale parameter) and 'alpha' (shape parameter).
+  #   - For 'log-logistic', include 'lambda' (1/scale parameter) and 'alpha' (shape parameter).
+  #   - For 'log-normal', include 'mean' (mean of the log-scale parameter) and 'sd' (standard deviation of the log-scale parameter).
+  #   - For 'uniform', include 'start' (minimum value) and 'end' (maximum value).
+  # Returns:
+  #   A numeric vector of length n representing the simulated censoring times based on the specified distribution.
   if (dist == "exponential") {
     if (!is.null(params$lambda)) {
       return(rexp(n, rate = params$lambda))
@@ -150,13 +213,15 @@ sim_censor_time <- function(dist = "exponential", n, params = list()){
 
 ```{r}
 sim_beta <- function(prop, time_point, mean_X){
-  # Simulate true beta (except beta0)
-  # if(dist == "uniform"){
-  #   true_beta = runif(nums, params$start, params$end)
-  # }
-  # else if(dist == "middle-high"){
-  #   true_beta = rlaplace(nums, mu = 0, sigma = params$sigma)
-  # }
+  # Simulate Beta Coefficients for Covariates. This function estimates beta coefficients by solving an optimization problem. 
+  # The goal is to find the beta coefficients such thatthe sum of the product of covariates and their respective beta values 
+  # matches a specified constant.
+  # Arguments:
+  #   prop: A numeric value representing the survival proportion at the given time point.
+  #   time_point: A numeric value representing the time point of interest.
+  #   mean_X: A numeric vector representing the mean values of the covariates.
+  # Returns:
+  #   A numeric vector of the estimated beta coefficients.
   constant = -log(prop*time_point)
   objective_function <- function(beta, x, constant) {
     return((sum(x * beta) - constant)^2)
@@ -165,18 +230,22 @@ sim_beta <- function(prop, time_point, mean_X){
   result = optim(initial_beta, objective_function, x = mean_X, constant = constant)
   beta_solution = result$par
   return(beta_solution)
-  
-  return(true_beta)
 }
 ```
 
 ```{r}
 simulate_U <- function(n) {
-  # It is a helper function of sim_T below Simulate S(t|X_i) = U.
+  # Simulate S(t|X_i) = U.
+  # It is a helper function of sim_T below, using inverse cumulative function.
+  # Arguments:
+  # n: An integer specifying the number of values to simulate in the following ways:
   # U ~ unif(0.01,0.25) with probability 0.4
   # U ~ unif(0.25, 0.5) with probability 0.35
   # U ~ unif(0.5, 0.75] with probability 0.15
-  # U ~ unif(0.75, 1) with probability 0.1
+  # U ~ unif(0.75, 0.99) with probability 0.1
+  # Returns:
+  # A numeric vector where each element is sampled from a pievewise uniform distribution.
+  
   simulated_values = numeric(n)
   probs = c(0.4, 0.35, 0.15, 0.1)
   intervals = matrix(c(0.01, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 0.99), ncol = 2, byrow = TRUE)
@@ -203,35 +272,48 @@ simulate_U <- function(n) {
 
 ```{r}
 sim_T <- function(dist, n, params=list(), U_notuni){
-  # Simulate event time based on baseline survival function
+  # Simulate event time based on baseline survival function.
+  # Arguments:
+  #   dist: A character string specifying the distribution for simulating event times.
+  #         Options are c('exponential', 'Weibull', 'log-logistic', and 'log-normal')
+  #   n: An integer specifying the number of event times to simulate.
+  #   params: 
+  #     - For 'exponential', include 'lambda_base' (rate parameter) and 'lc' (linear combination of covariates).
+  #     - For 'Weibull', include 'lambda_base' (1/scale parameter), 'alpha' (shape parameter), and 'lc' (linear combination of covariates).
+  #     - For 'log-logistic', include 'lambda_base' (1/scale parameter), 'alpha' (shape parameter), and 'lc' (linear combination of covariates).
+  #     - For 'log-normal', include 'mean' (mean of the log-scale), 'sd' (standard deviation of the log-scale), and 'lc' (linear combination of covariates).
+  #   U_notuni: A logical value indicating whether to simulate U from simulate_U (TRUE) or from a unif[0,1] (FALSE).
+  # Returns:
+  #   A numeric vector representing the simulated event times based on the specified distribution.
+  
   # If baseline survival follows exponential distribution, event time is simulated directly
-  # In other cases, simulate events times by suing the inverse of the cumulative hazard function (Using helper function)
+  # In other cases, simulate events times by suing the inverse of the cumulative hazard function (Using helper function simulate_U)
   if (dist == "exponential") {
-  if (!is.null(params$lambda_base) & !is.null(params$lc)) {
-    return(rexp(n, rate = (params$lambda_base*exp(params$lc))))
-  }
-} else if (dist == "Weibull") {
-  if (!is.null(params$lambda_base) & !is.null(params$alpha)& !is.null(params$lc)) {
-    if(U_notuni){
-      U = simulate_U(n)
-    } else{
-      U = runif(n, 0, 1)
+    if (!is.null(params$lambda_base) & !is.null(params$lc)) {
+      return(rexp(n, rate = (params$lambda_base*exp(params$lc))))
     }
-    return(1/params$lambda_base*(-log(U)/exp(params$lc))^(1/params$alpha))
+} else if (dist == "Weibull") {
+    if (!is.null(params$lambda_base) & !is.null(params$alpha)& !is.null(params$lc)) {
+      if(U_notuni){
+        U = simulate_U(n)
+      } else{
+        U = runif(n, 0, 1)
+      }
+      return(1/params$lambda_base*(-log(U)/exp(params$lc))^(1/params$alpha))
   }
 } else if (dist == "log-logistic") {
-  if (!is.null(params$lambda_base) & !is.null(params$alpha)) {
-    U = simulate_U(n)
-    return((1/(params$lambda_base)) * ((1-U^(1/exp(params$lc))) / U^(1/exp(params$lc)))^(1 / params$alpha))
-  }
+    if (!is.null(params$lambda_base) & !is.null(params$alpha)) {
+      U = simulate_U(n)
+      return((1/(params$lambda_base)) * ((1-U^(1/exp(params$lc))) / U^(1/exp(params$lc)))^(1 / params$alpha))
+    }
 } else if (dist == "log-normal") {
-  if (!is.null(params$mean) & !is.null(params$sd)& !is.null(params$lc)) {
-    U = simulate_U(n)
-    S_t = 1-U^(1 / exp(params$lc))
-    return(exp(qnorm(1 - S_t) * params$sd + params$mean))
-  }
+    if (!is.null(params$mean) & !is.null(params$sd)& !is.null(params$lc)) {
+      U = simulate_U(n)
+      S_t = 1-U^(1 / exp(params$lc))
+      return(exp(qnorm(1 - S_t) * params$sd + params$mean))
+    }
 } else {
-  stop("Unsupported distribution")
+    stop("Unsupported distribution")
 }
 }
 ```
@@ -274,3 +356,10 @@ check_censor_in_time_interval<- function(dt,time_point){
   return(result_table)
 }
 ```
+
+
+
+
+
+
+
