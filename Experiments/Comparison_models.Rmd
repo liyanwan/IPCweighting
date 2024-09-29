@@ -1,0 +1,131 @@
+---
+title: "Comparison_models"
+author: "Liyan Wang"
+date: "2024-09-21"
+output: html_document
+---
+
+```{r}
+rm(list = ls())
+knitr::purl("~/IPCweighting/SimulationFunction/IPCWmethod.Rmd", output = "~/IPCweighting/SimulationFunction/IPCWmethod.R")
+source("~/IPCweighting/SimulationFunction/IPCWmethod.R")
+
+knitr::purl("~/IPCweighting/IPCW/estimation_naive_cox_ipcw.Rmd", output = "~/IPCweighting/IPCW/estimation_naive_cox_ipcw.R")
+source("~/IPCweighting/IPCW/estimation_naive_cox_ipcw.R")
+
+knitr::purl("~/IPCweighting/SimulationFunction/Data_Simulation.Rmd", output = "~/IPCweighting/SimulationFunction/Data_Simulation.R")
+source("~/IPCweighting/SimulationFunction/Data_Simulation.R")
+
+knitr::purl("~/IPCweighting/SimulationFunction/Status_table.Rmd", output = "~/IPCweighting/SimulationFunction/Status_table.R")
+source("~/IPCweighting/SimulationFunction/Status_table.R")
+```
+
+```{r}
+library(survival)
+library(dplyr)
+
+# parameters of event_time
+dist = "Weibull"
+time_point = 5
+params = list()
+if(dist=="exponential"){
+  params$lambda_base = 2
+}else if(dist == "Weibull"){
+  params$lambda_base = 1
+  params$alpha = 2
+} else if(dist == "log-logistic"){
+  params$lambda_base = 4
+  params$alpha = 1.2
+} else if (dist == "log-normal"){
+  params$mean = 2
+  params$sd = 0.8
+} else{
+  stop("Unsupported distribution")
+}
+
+# parameters of censor_time
+censor_params = list()
+censor_dist = "uniform"
+if(censor_dist=="exponential"){
+  censor_params$lambda = 0.2
+}else if(censor_dist == "Weibull"){
+  censor_params$lambda = 0.5
+  censor_params$alpha = 2
+} else if(censor_dist == "log-logistic"){
+  censor_params$lambda = 4
+  censor_params$alpha = 1.2
+} else if (censor_dist == "log-normal"){
+  censor_params$mean = 2
+  censor_params$sd = 0.7
+} else if (censor_dist == "uniform"){
+  censor_params$start = 1
+  censor_params$end = 7
+} else{
+  stop("Unsupported distribution")
+}
+
+
+num_obs = 500
+seed = 50
+train_prop = 0.7
+
+naive_performance = numeric(seed)
+ipcw_performance = numeric(seed)
+cox_true_param_performance = numeric(seed)
+cox_est_blh_performance = numeric(seed)
+```
+
+```{r}
+for (i in 1:seed){
+  # Simulate covariates, time, status
+  # dt = data.frame()
+  X = matrix(ncol = 0, nrow = 0)
+  mean_X = c()
+  X = get_cont_X(X, 'uniform',num_obs,1,7,"X1")
+  X = get_cont_X(X, 'uniform',num_obs,0.2,4,"X2")
+  var_name = colnames(X)
+  beta = sim_beta(0.6, time_point, mean_X)
+  params$lc = rowSums(sweep(X,2,beta,"*"))
+  power = exp(rowSums(sweep(X,2,beta,"*")))
+  dt = simulation_data(num_obs, dist, params, censor_dist, censor_params, time_point, X)
+  dt$power = power
+  n_rows = nrow(dt)
+  # Split to train_data and test_data
+  train_index = sample(seq_len(n_rows), size = floor(train_prop*n_rows))
+  train_data = dt[train_index, ]
+  test_data = dt[-train_index, ]
+
+  true_surv = (true_survival_function(dist, time_point, params = params))^(test_data$power)
+  formula = as.formula(paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + ")))
+  cox_model = coxph(formula, data = train_data,method="breslow")
+  lp = rowSums(sweep(test_data[var_name],2,as.vector(cox_model$coefficients),"*"))
+  # true baseline survival, estimated beta
+  part1_prob = (true_survival_function(dist, time_point, params = params))^(exp(lp))
+  ols_part1 = ols_error(true_surv,part1_prob)
+  
+  # estimated baseline hazard and beta
+  baseline_hazard = basehaz(cox_model,centered=FALSE)
+  BLH_timepoint = baseline_hazard$hazard[which.min(abs(baseline_hazard$time - time_point))]
+  part3_prob = exp(-BLH_timepoint*exp(lp))
+  ols_part3 = ols_error(true_surv,part3_prob)
+
+  # naive, ipcw
+  kakaka = naive_estimate(train_data, test_data,var_name)
+  wulala = ipcw_estimate(train_data, test_data, time_point, var_name)
+  ols_naive = ols_error(true_surv,kakaka)
+  ols_ipcw = ols_error(true_surv,wulala)
+
+  naive_performance[i]= ols_naive
+  ipcw_performance[i] = ols_ipcw
+  cox_true_param_performance[i]= ols_part1
+  cox_est_blh_performance[i] = ols_part3
+}
+
+print(check_time_vs_status(dt,time_point))
+print(paste("naive estimate ols error is: ", mean(naive_performance)))
+print(paste("ipcw estimate ols error is: ", mean(ipcw_performance)))
+print(paste("cox ph estimate ols error (model 1) is: ", mean(cox_true_param_performance)))
+print(paste("cox ph estimate ols error (model 3) is: ", mean(cox_est_blh_performance)))
+
+```
+
