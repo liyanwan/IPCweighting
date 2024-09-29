@@ -6,7 +6,7 @@ The `Comparison_models.Rmd` file simulates a right-censored dataset and compares
  `seed`: Number of seeds used in the simulations.
  `num_obs`: Number of observations in each dataset.
  `time_point`: A predefined time point. (Default: 5 years)
-We assume the true survival function follows the model: S(t|X_i) = (S_0(t))^exp(X * beta)
+We assume the true survival function follows the model: S(t | X_i) = [S_0(t)]^exp(X * beta)
  The file prints the OLS_Error(to be continued) between the true survival function and the estimated survival function, corresponding to the following models:
  1. Naive estimate
  2. IPCW (1 bin) estimate
