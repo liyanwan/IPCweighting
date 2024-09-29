@@ -31,7 +31,9 @@ The `binned_experiments.Rmd` file simulates a right-censored dataset, finds the 
    `num_obs`: Number of observations in each dataset.
    `time_point`: A predefined time point. (Default: 5 years)
    `max_intervals`: Maximum number of intervals. (Default: 80)
-The file generates two plots: 1. OLS_Error(to be continued) vs. the number of intervals for one dataset case 2. OLS_prints vs. the number of intervals for `n` datasets case.
+The file generates two plots: 
+    1. OLS_Error(to be continued) vs. the number of intervals for one dataset case.
+    2. OLS_prints vs. the number of intervals for `n` datasets case.
 
  
 
