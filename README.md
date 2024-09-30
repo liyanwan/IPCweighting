@@ -2,6 +2,7 @@
 
 ## Experiments
 The `Comparison_models.Rmd` file simulates a right-censored dataset and compares different estimation methods. The following arguments can be specified for the simulations:
+
  `dist` `censor_dist`: Distribution of event_time and censor_time.
  `seed`: Number of seeds used in the simulations.
  `num_obs`: Number of observations in each dataset.
