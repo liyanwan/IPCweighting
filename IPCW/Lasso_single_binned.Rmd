@@ -1,5 +1,5 @@
 ---
-title: "LASSO"
+title: "LASSO_single_binned"
 author: "Liyan Wang"
 date: "2024-10-01"
 output: html_document
@@ -79,10 +79,10 @@ cross_validate_lambda <- function(dt, true_surv, lambda_values, var_name, alpha,
       results[i, num_intervals] = mean(fold_performance)
     }
   }
-min_val <- min(results, na.rm = TRUE)
-optimal_index <- which(results == min_val, arr.ind = TRUE)
-optimal_lambda <- lambda_values[optimal_index[1, 1]]
-optimal_intervals <- optimal_index[1, 2]
+min_val = min(results, na.rm = TRUE)
+optimal_index = which(results == min_val, arr.ind = TRUE)
+optimal_lambda = lambda_values[optimal_index[1, 1]]
+optimal_intervals = optimal_index[1, 2]
 return(list(
   best_lambda = optimal_lambda,
   best_number_of_bins = optimal_intervals,
