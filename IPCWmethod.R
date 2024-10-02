@@ -1,8 +1,8 @@
-```{r setup, include=FALSE}
+## ----setup, include=FALSE--------------------------------------------------------------------------
 rm(list = ls())
-```
 
-```{r}
+
+## --------------------------------------------------------------------------------------------------
 true_survival_function <- function(dist,time,params = list()){
   # This function computes the BASELINE true survival probability for different survival distributions at a given time.
   # The supported distributions are exponential, Weibull, log-normal, and log-logistic.
@@ -35,90 +35,67 @@ true_survival_function <- function(dist,time,params = list()){
     stop("Error: Unsupported distribution.")
   }
 }
-```
 
-```{r}
+
+## --------------------------------------------------------------------------------------------------
+bootstrap_sampling_var <- function(bin_dt, observed_time, sigma, time_point, num_bootstrap) {
+  lst = numeric(num_bootstrap)
+  for (b in 1:num_bootstrap) {
+    bootstrap_sample = bin_dt[sample(nrow(bin_dt), replace = TRUE), ]
+    km_fit = survfit(Surv(observed_time, sigma) ~ 1, data = bootstrap_sample)
+    surv_summary = summary(km_fit, times = time_point)
+    lst[b] = 1 - surv_summary$surv
+  }
+  print(lst)
+  sampling_var = var(lst)
+  print(sampling_var)
+  return(sampling_var)
+}
+
+
+## --------------------------------------------------------------------------------------------------
 ols_error <- function(true_surv, est_surv) {
   return(sum((true_surv - est_surv)^2))
 }
 
-calibration_statistic <- function(type=c("uniform","quantile","random"), num_bins, predict_risk, observed_time, sigma, time_point) {
+calibration_statistic <- function(type=c("uniform","quantile","random"), num_bins, predict_risk, observed_time, sigma, time_point, num_bootstrap = 5) {
   predict_risk <- as.numeric(predict_risk)
   data = data.frame(predicted_risk_probability = predict_risk, observed_time = observed_time, sigma = sigma)
   data = data[order(data$predicted_risk_probability), ]
   # Create bins of data
-  if(type=="uniform"){
-    data$bin = cut(data$predicted_risk_probability, breaks = num_bins, labels = FALSE, include.lowest = TRUE)
-  }
-  else if(type == "quantile"){
-    data$bin = cut(data$predicted_risk_probability, 
-                   breaks = quantile(data$predicted_risk_probability, probs = seq(0,1,by = 1/num_bins)), 
-                   labels = FALSE, include.lowest = TRUE)
-  }
-  else if(type == "random"){
-    data$bin = sample(1:bins, length(data$predicted_risk_probability), replace = TRUE)
-  }
-  else{
-    stop("Type can only be one of 'uniform', 'quantile', or 'random'")
-  }
+  print(class(data$predicted_risk_probability))
+  data$bin = cut(data$predicted_risk_probability, breaks = num_bins, labels = FALSE)
+  View(data)
   K = 0
-  avg_pred_prob = numeric(num_bins)
-  observed_prob = numeric(num_bins)
   for (k in 1:num_bins) {
     bin_dt = data[data$bin == k, ]
-    # compute the average of predicted risk in bin k
+    print(1)
     avg_pred_prob = mean(bin_dt$predicted_risk_probability)
+    print(avg_pred_prob)
     km_fit = survfit(Surv(observed_time, sigma) ~ 1, data = bin_dt)
-    surv_summary = summary(km_fit, times = time_point,extend=TRUE)
-    # compute the predicted risk using KM estimator
+    surv_summary = summary(km_fit, times = time_point)
     bin_KM_pred = 1 - surv_summary$surv
-    avg_pred_probs[k] = avg_pred_prob
-    observed_probs[k] = bin_KM_pred
-    num_at_risk = km_fit$n.risk[km_fit$time <= time_point]
-    # print(num_at_risk)
-    num_events = km_fit$n.event[km_fit$time <= time_point]
-    # Greenwood's formula is the most common estimator to approximate KM estimator's variance
-    greenwood_var = (surv_summary$surv)^2 * sum(num_events/(num_at_risk*(num_at_risk - num_events)))
-    K = K + ((avg_pred_prob - bin_KM_pred)^2 / greenwood_var)
+    KM_sampling_variance = bootstrap_sampling_var(bin_dt, 
+                                                  bin_dt$observed_time, 
+                                                  bin_dt$sigma, 
+                                                  time_point, 
+                                                  num_bootstrap)
+    K = K + ((avg_pred_prob - bin_KM_pred)^2 / KM_sampling_variance)
   }
-  plot(avg_pred_probs, observed_probs, xlab = "Predicted Risk", ylab = "Observed Survival (KM)", 
-       main = "Calibration Plot", pch = 19, col = "blue")
-  abline(0, 1, col = "red", lty = 2)
   return(K)
 }
 
-c_index_censoring <- function(observed_time, sigma, predicted_risk) {
-  # Arguments:
-  # observed_time: vector of observed times (minimum(event_time, censor_time))
-  # sigma: vector of event indicators (1 = event, 0 = censored)
-  # predicted_risk: vector of predicted risks
-  n = length(observed_time)
-  concordant = 0
-  comparable = 0
-  for (i in 1:(n - 1)) {
-    for (j in (i + 1):n) {
-      # Check if the pair can be compared
-      if (((sigma[i] == 1) && (observed_time[i] < observed_time[j])) || ((sigma[j] == 1) && (observed_time[j] < observed_time[i]))) {
-        comparable = comparable + 1
-        if ((observed_time[i] < observed_time[j]) && (predicted_risk[i] > predicted_risk[j])) {
-          concordant = concordant + 1
-        } else if ((observed_time[j] < observed_time[i]) && (predicted_risk[j] > predicted_risk[i])) {
-          concordant = concordant + 1
-        }
-      }
-    }
-  }
-  c_index = concordant/comparable
-  return(c_index)
+Cindex <- function(){
+  
 }
 
 deviance_data <- function(status, predicted_probability){
   predicted_probability = pmax(pmin(predicted_probability, 1 - 1e-15), 1e-15)
   return(sum(status*log(predicted_probability)+(1-status)*log(1-predicted_probability)))
 }
-```
 
-```{r}
+
+## --------------------------------------------------------------------------------------------------
 get_status <- function(observed_time, sigma, time_point){
   # Calculate the event status at `time_point`, commly denoted as E
   # Arguments:
@@ -134,9 +111,9 @@ get_status <- function(observed_time, sigma, time_point){
   E_obs <- ifelse(observed_time <= time_point & sigma == 1, 1, ifelse(observed_time > time_point, 0, NA))
   return(E_obs)
 }
-```
 
-```{r}
+
+## --------------------------------------------------------------------------------------------------
 get_cat_X <- function(X, num_obs, values, probs, name){
   # Generate a Categorical Covariate
   # This function adds a new categorical covariate to an existing dataframe. 
@@ -220,9 +197,9 @@ get_cont_X <- function(X, distribution, num_obs, para1, para2, name) {
   mean_X <<- c(mean_X, mean)
   return(X)
 }
-```
 
-```{r}
+
+## --------------------------------------------------------------------------------------------------
 sim_censor_time <- function(dist = "exponential", n, params = list()){
   # Simulate censoring time
   # Arguments:
@@ -283,9 +260,9 @@ sim_censor_time <- function(dist = "exponential", n, params = list()){
     stop("Unsupported distribution")
 }
 }
-```
 
-```{r}
+
+## --------------------------------------------------------------------------------------------------
 sim_beta <- function(prop, time_point, mean_X){
   # Simulate Beta Coefficients for Covariates. This function estimates beta coefficients by solving an optimization problem. 
   # The goal is to find the beta coefficients such thatthe sum of the product of covariates and their respective beta values 
@@ -305,9 +282,9 @@ sim_beta <- function(prop, time_point, mean_X){
   beta_solution = result$par
   return(beta_solution)
 }
-```
 
-```{r}
+
+## --------------------------------------------------------------------------------------------------
 simulate_U <- function(n) {
   # Simulate S(t|X_i) = U.
   # It is a helper function of sim_T below, using inverse cumulative function.
@@ -342,9 +319,9 @@ simulate_U <- function(n) {
     }
   return(simulated_values)
 }
-```
 
-```{r}
+
+## --------------------------------------------------------------------------------------------------
 sim_T <- function(dist, n, params=list(), U_notuni){
   # Simulate event time based on baseline survival function.
   # Arguments:
@@ -387,15 +364,101 @@ sim_T <- function(dist, n, params=list(), U_notuni){
     stop("Unsupported distribution")
 }
 }
-```
 
-```{r}
+
+## --------------------------------------------------------------------------------------------------
 Get_Ghat <-function(time_point, full_dt){
   # A helper function, using Kaplan Meier estimator of survival distribution of the censoring times.
   km_censor = survfit(Surv(observed_time, 1-sigma)~1, data = full_dt)
   survest_Xi = stepfun(km_censor$time, c(1, km_censor$surv))
   return(survest_Xi)
 }
-```
 
+
+## --------------------------------------------------------------------------------------------------
+check_time_vs_status <- function(dt,time_point){
+  # return a table shows the number of E=0, E=1, E unknown, respectively
+  num_E_1 = sum((get_status(dt$observed_time, dt$sigma, time_point)) == 1, na.rm = TRUE)
+  num_E_0 = sum((get_status(dt$observed_time, dt$sigma, time_point)) == 0, na.rm = TRUE)
+  num_E_unknown = sum(is.na(get_status(dt$observed_time, dt$sigma, time_point)))
+  status_table = data.frame(status = c("E = 1", "E = 0", "E unknown"),
+                            Count = c(num_E_1, num_E_0, num_E_unknown),
+                            stringsAsFactors = FALSE)
+  colnames(status_table)[1] = paste("Status_before_year_", time_point, sep = "")
+  return(status_table)
+}
+
+
+## --------------------------------------------------------------------------------------------------
+check_censor_in_time_interval<- function(dt,time_point){
+  # return a table shows the number of observations censored between i-1 and i, where i=1,2,..., time_point
+  result_table =data.frame(Time_Interval = character(),
+                         Count = integer(),
+                         stringsAsFactors = FALSE)
+  for (i in 1:time_point) {
+    count = nrow(dt[dt$sigma == 0 & dt$observed_time >= i - 1 & dt$observed_time <= i, ])
+    result_table = rbind(result_table, 
+                          data.frame(Time_Interval = paste(i-1, "to", i), 
+                                     Count_Censored_Data_in_Time_Tnterval = count))
+  }
+  return(result_table)
+}
+
+
+## --------------------------------------------------------------------------------------------------
+naive_estimate <- function(dt, newdt, var_name){
+  # Estimates survival probability at a given time point using a naive logistic regression approach.
+  # Arguments:
+  #   newdt: the dataset that you want to estimate survival probability
+  #   var_name: A vector containing the names of all covariates to be included in the model.
+  # Returns:
+  #   A vector of predicted survival probabilities for each observation at the specified time point.
+  naive_data = dt[!is.na(dt$E),]  # drop observations with unknown E
+  formula_str = paste("E ~", paste(var_name, collapse = " + "))
+  formula <- as.formula(formula_str)
+  naive_model = glm(formula, data = naive_data, family = binomial)  
+  naive_pred_prob = 1-(predict(naive_model, newdata = newdt[var_name], type = "response"))
+  return(naive_pred_prob)
+}
+
+
+## --------------------------------------------------------------------------------------------------
+cox_estimate<-function(dt,newdt, var_name){
+  # Estimates survival probability at a given time point using a cox ph model
+  # Arguments:
+  #   time_point: Numeric value specifying the time point of interest.
+  #   var_name: A vector containing the names of all covariates to be included in the model.
+  # Returns:
+  #   A vector of predicted survival probabilities for each observation at the specified time point.
+  formula_var = paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + "))
+  formula = as.formula(formula_var)
+  cox_model = coxph(formula, data = dt)
+  coxph_pred_prob = predict(cox_model, newdata = newdt, type="survival")
+  return(coxph_pred_prob)
+}
+
+
+## --------------------------------------------------------------------------------------------------
+ipcw_estimate <- function(dt,newdt, time_point, var_name){
+  # Estimates survival probability at a given time point using a naive logistic regression approach with IPCW.
+  # Arguments:
+  #   newdt: the dataset that you want to estimate survival probability
+  #   time_point: Numeric value specifying the time point of interest.
+  #   var_name: A vector containing the names of all covariates to be included in the model.
+  # Returns:
+  #   A vector of predicted survival probabilities for each observation at the specified time point with IPCW.
+  full_dt = dt
+  #Apply Kaplan-Meier estimator of the survival distribution of the censoring times
+  km_censor_Xi = survfit(Surv(observed_time, 1-sigma)~1, data = full_dt)
+  survest_Xi = stepfun(km_censor_Xi$time, c(1, km_censor_Xi$surv))
+  censor_prob_Xi = survest_Xi(ifelse(full_dt$observed_time<time_point, full_dt$observed_time,time_point))
+  # Compute \hat{G(min(observed_time, time_point))}
+  full_dt$G_hat_Vi = censor_prob_Xi
+  full_dt$IPCW = ifelse(pmin(full_dt$event_time, time_point)<full_dt$censor_time, 1/full_dt$G_hat_Vi, 0) # Compute weights
+  formula_str = paste("E ~", paste(var_name, collapse = " + "))
+  formula = as.formula(formula_str)
+  ipcw_logistic_model = glm(formula, data = full_dt, family = binomial, weights = IPCW)
+  ipcw_pred_prob = 1-(predict(ipcw_logistic_model, newdata = newdt[var_name], type = "response"))
+  return(ipcw_pred_prob)
+}
 

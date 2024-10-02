@@ -18,7 +18,7 @@ source("~/IPCweighting/IPCW/estimation_naive_cox_ipcw.R")
 ```
 
 ```{r}
-bin_combined_ipcw<-function(interval,train_data){
+bin_combined_ipcw<-function(interval,train_data, return_type="model"){
   # This is used to get the model of "binned" IPCW
   total=data.frame()
   for(i in 1:(length(interval)-1)){
@@ -26,22 +26,25 @@ bin_combined_ipcw<-function(interval,train_data){
     end = interval[i+1]
     numerator = Ghat(start)
     batch = train_data[train_data$observed_time>start,]
-    batch$E = NULL
     batch$E = get_status(batch$observed_time,batch$sigma,end)
     batch$G = ifelse(batch$observed_time<end, Ghat(batch$observed_time),Ghat(end))
     batch$IPCW = ifelse(pmin(batch$event_time, end)<batch$censor_time, 
                                   numerator/batch$G, 
                                   0)
-    if (ncol(total) == 0) {
+    if (is.null(total)) {
       total = data.frame(batch)
     } else {
       total = rbind(total, batch)
     }
   }
-  formula_str = paste("E ~", paste(var_name, collapse = " + "))
-  formula = as.formula(formula_str)
-  model = glm(formula, data = total, family = binomial, weights = IPCW)
-  return(model)
+  if(return_type == "dataset"){
+    return(total)
+  }
+  else if(return_type == "model"){
+    formula = as.formula(paste("E ~", paste(var_name, collapse = " + ")))
+    model = glm(formula, data = total, family = binomial, weights = IPCW)
+    return(model)
+  }
 }
 ```
 

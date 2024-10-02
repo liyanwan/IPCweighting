@@ -1,0 +1,93 @@
+---
+title: "LASSO"
+author: "Liyan Wang"
+date: "2024-10-01"
+output: html_document
+---
+```{r}
+rm(list = ls())
+library(survival)
+library(dplyr)
+library(caret)
+library(ggplot2)
+library(knitr)
+knitr::purl("~/IPCweighting/IPCW/Binned_IPCW_Function.Rmd", output = "~/IPCweighting/IPCW/Binned_IPCW_Function.R")
+source("~/IPCweighting/IPCW/Binned_IPCW_Function.R")
+```
+
+```{r}
+cox_partial_likelihood <- function(beta, X, time, sigma) {
+  risk_score = rowSums(sweep(X,2,beta,"*"))
+  exp_risk_score = exp(risk_score)
+  log_likelihood = 0
+  for (i in which(sigma == 1)) { 
+    risk_set = which(time >= time[i])
+    log_likelihood = log_likelihood + (risk_score[i] - log(sum(exp_risk_score[risk_set])))
+  }
+  return(log_likelihood)
+}
+```
+
+```{r}
+lasso_objective <- function(beta, X, time, sigma, lambda) {
+  partial_log_likelihood <- cox_partial_likelihood(beta, X, time, sigma)
+  l1_penalty <- lambda * sum(abs(beta))
+  return(-partial_log_likelihood + l1_penalty)
+}
+```
+
+```{r}
+# Cross-validation function for LASSO OR Ridge in Cox model
+cross_validate_lambda <- function(dt, true_surv, lambda_values, var_name, alpha, estimation_method, time_point, max_intervals = 80, k = 5) {
+  n <- nrow(dt)
+  X = dt[var_name]
+  results = matrix(NA, nrow = length(lambda_values), ncol = max_intervals)
+  for(i in seq_along(lambda_values)){
+    lambda = lambda_values[i]
+    for (num_intervals in 1:max_intervals) {
+      folds = sample(rep(1:k, length.out = n))
+      fold_performance = numeric(k)
+      interval = seq(0, time_point, length.out = num_intervals + 1)
+      for (f in 1:k) {
+        train_data = dt[folds!=f, ]
+        test_data = dt[folds==f, ]
+        test_true_surv = true_surv[folds==f, ]
+        train_data_with_weight = bin_combined_ipcw(interval,train_data, return_type="dataset")
+        lasso_cox = glmnet(as.matrix(train_data_with_weight[var_name]), 
+                           Surv(train_data_with_weight$observed_time, train_data_with_weight$sigma), 
+                           family = "cox", 
+                           weights = train_data_with_weight$IPCW, 
+                           alpha = alpha, 
+                           lambda = lambda)
+        est_beta = coef(lasso_cox, s = lambda)
+        test_lp = rowSums(sweep(test_data[var_name],2,as.vector(est_beta),"*"))
+        formula = as.formula(paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + ")))
+        cox_model = coxph(formula, data = train_data, method="breslow")
+        baseline_hazard = basehaz(cox_model,centered=FALSE)
+        BLH_timepoint = baseline_hazard$hazard[which.min(abs(baseline_hazard$time - time_point))]
+        est_test_surv = exp(-BLH_timepoint*exp(test_lp))
+        if(estimation_method =="ols"){
+          fold_performance[f] = ols_error(test_true_surv, est_test_surv)
+        }
+        else if(estimation_method == "C-index"){
+          fold_performance[f] = c_index_censoring(test_data$observed_time, test_data$sigma,1-est_test_surv)
+        }
+        else if(estimation_method == "Calibration"){
+          fold_performance[f] = calibration_statistic("uniform", 5, 1-est_test_surv, test_data$observed_time, test_data$sigma, time_point)
+        }
+      }
+      results[i, num_intervals] = mean(fold_performance)
+    }
+  }
+min_val <- min(results, na.rm = TRUE)
+optimal_index <- which(results == min_val, arr.ind = TRUE)
+optimal_lambda <- lambda_values[optimal_index[1, 1]]
+optimal_intervals <- optimal_index[1, 2]
+return(list(
+  best_lambda = optimal_lambda,
+  best_number_of_bins = optimal_intervals,
+  results = results
+))
+}
+```
+

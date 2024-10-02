@@ -65,8 +65,8 @@ if(censor_dist=="exponential"){
 }
 
 
-num_obs = 500
-seed = 50
+num_obs = 50000
+seed = 1
 train_prop = 0.7
 
 naive_performance = numeric(seed)
@@ -101,31 +101,61 @@ for (i in 1:seed){
   lp = rowSums(sweep(test_data[var_name],2,as.vector(cox_model$coefficients),"*"))
   # true baseline survival, estimated beta
   part1_prob = (true_survival_function(dist, time_point, params = params))^(exp(lp))
-  ols_part1 = ols_error(true_surv,part1_prob)
-  
   # estimated baseline hazard and beta
   baseline_hazard = basehaz(cox_model,centered=FALSE)
   BLH_timepoint = baseline_hazard$hazard[which.min(abs(baseline_hazard$time - time_point))]
   part3_prob = exp(-BLH_timepoint*exp(lp))
-  ols_part3 = ols_error(true_surv,part3_prob)
-
   # naive, ipcw
   kakaka = naive_estimate(train_data, test_data,var_name)
   wulala = ipcw_estimate(train_data, test_data, time_point, var_name)
-  ols_naive = ols_error(true_surv,kakaka)
-  ols_ipcw = ols_error(true_surv,wulala)
+  
+  # ols_naive = ols_error(true_surv,kakaka)
+  # ols_ipcw = ols_error(true_surv,wulala)
+  # ols_part1 = ols_error(true_surv,part1_prob)
+  # ols_part3 = ols_error(true_surv,part3_prob)
+  # naive_performance[i]= ols_naive
+  # ipcw_performance[i] = ols_ipcw
+  # cox_true_param_performance[i]= ols_part1
+  # cox_est_blh_performance[i] = ols_part3
+  
+  # c_index_naive = c_index_censoring(test_data$observed_time, test_data$sigma, 1-kakaka)
+  # c_index_ipcw = c_index_censoring(test_data$observed_time, test_data$sigma, 1-wulala)
+  # c_index_model1 = c_index_censoring(test_data$observed_time, test_data$sigma, 1-part1_prob)
+  # c_index_model3 = c_index_censoring(test_data$observed_time, test_data$sigma, 1-part3_prob)
+  # naive_performance[i]= c_index_naive
+  # ipcw_performance[i] = c_index_ipcw
+  # cox_true_param_performance[i]= c_index_model1
+  # cox_est_blh_performance[i] = c_index_model3
+  
+  calib_naive = calibration_statistic("uniform", 5, 1-kakaka, test_data$observed_time, test_data$sigma, time_point)
+  calib_ipcw = calibration_statistic("uniform", 5, 1-wulala, test_data$observed_time, test_data$sigma, time_point)
+  calib_model1 = calibration_statistic("uniform", 5,1-part1_prob,test_data$observed_time, test_data$sigma, time_point)
+  calib_model3 = calibration_statistic("uniform", 5,1-part3_prob,test_data$observed_time, test_data$sigma, time_point)
+  naive_performance[i]= calib_naive
+  ipcw_performance[i] = calib_ipcw
+  cox_true_param_performance[i]= calib_model1
+  cox_est_blh_performance[i] = calib_model3
 
-  naive_performance[i]= ols_naive
-  ipcw_performance[i] = ols_ipcw
-  cox_true_param_performance[i]= ols_part1
-  cox_est_blh_performance[i] = ols_part3
+  
 }
 
+# print(check_time_vs_status(dt,time_point))
+# print(paste("naive estimate ols error is: ", mean(naive_performance)))
+# print(paste("ipcw estimate ols error is: ", mean(ipcw_performance)))
+# print(paste("cox ph estimate ols error (model 1) is: ", mean(cox_true_param_performance)))
+# print(paste("cox ph estimate ols error (model 3) is: ", mean(cox_est_blh_performance)))
+
+# print(check_time_vs_status(dt,time_point))
+# print(paste("naive estimate C index is: ", mean(naive_performance)))
+# print(paste("ipcw estimate C index is: ", mean(ipcw_performance)))
+# print(paste("cox ph estimate C index (model 1) is: ", mean(cox_true_param_performance)))
+# print(paste("cox ph estimate C index (model 3) is: ", mean(cox_est_blh_performance)))
+
 print(check_time_vs_status(dt,time_point))
-print(paste("naive estimate ols error is: ", mean(naive_performance)))
-print(paste("ipcw estimate ols error is: ", mean(ipcw_performance)))
-print(paste("cox ph estimate ols error (model 1) is: ", mean(cox_true_param_performance)))
-print(paste("cox ph estimate ols error (model 3) is: ", mean(cox_est_blh_performance)))
+print(paste("naive estimate Calibration is: ", mean(naive_performance)))
+print(paste("ipcw estimate Calibration is: ", mean(ipcw_performance)))
+print(paste("cox ph estimate Calibration (model 1) is: ", mean(cox_true_param_performance)))
+print(paste("cox ph estimate Calibration (model 3) is: ", mean(cox_est_blh_performance)))
 
 ```
 

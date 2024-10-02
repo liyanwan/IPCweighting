@@ -1,0 +1,57 @@
+## --------------------------------------------------------------------------------------------------
+naive_estimate <- function(dt, newdt, var_name){
+  # Estimates survival probability at a given time point using a naive logistic regression approach.
+  # Arguments:
+  #   newdt: the dataset that you want to estimate survival probability
+  #   var_name: A vector containing the names of all covariates to be included in the model.
+  # Returns:
+  #   A vector of predicted survival probabilities for each observation at the specified time point.
+  naive_data = dt[!is.na(dt$E),]  # drop observations with unknown E
+  formula_str = paste("E ~", paste(var_name, collapse = " + "))
+  formula <- as.formula(formula_str)
+  naive_model = glm(formula, data = naive_data, family = binomial)  
+  naive_pred_prob = 1-(predict(naive_model, newdata = newdt[var_name], type = "response"))
+  return(naive_pred_prob)
+}
+
+
+## --------------------------------------------------------------------------------------------------
+cox_estimate<-function(dt,newdt, var_name){
+  # Estimates survival probability at a given time point using a cox ph model
+  # Arguments:
+  #   time_point: Numeric value specifying the time point of interest.
+  #   var_name: A vector containing the names of all covariates to be included in the model.
+  # Returns:
+  #   A vector of predicted survival probabilities for each observation at the specified time point.
+  formula_var = paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + "))
+  formula = as.formula(formula_var)
+  cox_model = coxph(formula, data = dt)
+  coxph_pred_prob = predict(cox_model, newdata = newdt, type="survival")
+  return(coxph_pred_prob)
+}
+
+
+## --------------------------------------------------------------------------------------------------
+ipcw_estimate <- function(dt,newdt, time_point, var_name){
+  # Estimates survival probability at a given time point using a naive logistic regression approach with IPCW.
+  # Arguments:
+  #   newdt: the dataset that you want to estimate survival probability
+  #   time_point: Numeric value specifying the time point of interest.
+  #   var_name: A vector containing the names of all covariates to be included in the model.
+  # Returns:
+  #   A vector of predicted survival probabilities for each observation at the specified time point with IPCW.
+  full_dt = dt
+  #Apply Kaplan-Meier estimator of the survival distribution of the censoring times
+  km_censor_Xi = survfit(Surv(observed_time, 1-sigma)~1, data = full_dt)
+  survest_Xi = stepfun(km_censor_Xi$time, c(1, km_censor_Xi$surv))
+  censor_prob_Xi = survest_Xi(ifelse(full_dt$observed_time<time_point, full_dt$observed_time,time_point))
+  # Compute \hat{G(min(observed_time, time_point))}
+  full_dt$G_hat_Vi = censor_prob_Xi
+  full_dt$IPCW = ifelse(pmin(full_dt$event_time, time_point)<full_dt$censor_time, 1/full_dt$G_hat_Vi, 0) # Compute weights
+  formula_str = paste("E ~", paste(var_name, collapse = " + "))
+  formula = as.formula(formula_str)
+  ipcw_logistic_model = glm(formula, data = full_dt, family = binomial, weights = IPCW)
+  ipcw_pred_prob = 1-(predict(ipcw_logistic_model, newdata = newdt[var_name], type = "response"))
+  return(ipcw_pred_prob)
+}
+
