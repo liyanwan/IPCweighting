@@ -68,7 +68,7 @@ bin_surv_probability <-function(model_list=list(), data, var_name){
 
 ```{r}
 bin_separate_ipcw <-function(interval,train_data){
-  # This is used to get the model of "binned" IPCW
+  # This is used to get the model of "binned" IPCW (different models for different bins)
   model_list = list()
   for(i in 1:(length(interval)-1)){
     start = interval[i]
