@@ -39,6 +39,7 @@ cross_validate_lambda <- function(dt, lambda_values, var_name, alpha_num, time_p
     # fold performance_metric[i, 1, j] represents OLS Error with lambda_value[i] and j intervals
     # fold performance_metric[i, 2, j] represents C-index with lambda_value[i] and j intervals
     # fold performance_metric[i, 3, j] represents -Log-likelihood with lambda_value[i] and j intervals
+    interval = seq(0, time_point, length.out = num_intervals + 1)
     fold_performance_metric = array(0, dim = c(length(lambda_values), 3, k))
     for (f in 1:k) {
       train_data = dt[folds!=f,]
