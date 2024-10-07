@@ -11,83 +11,124 @@ library(dplyr)
 library(caret)
 library(ggplot2)
 library(knitr)
+library(glmnet)
 knitr::purl("~/IPCweighting/IPCW/Binned_IPCW_Function.Rmd", output = "~/IPCweighting/IPCW/Binned_IPCW_Function.R")
 source("~/IPCweighting/IPCW/Binned_IPCW_Function.R")
 ```
 
 ```{r}
-cox_partial_likelihood <- function(beta, X, time, sigma) {
-  risk_score = rowSums(sweep(X,2,beta,"*"))
-  exp_risk_score = exp(risk_score)
-  log_likelihood = 0
-  for (i in which(sigma == 1)) { 
-    risk_set = which(time >= time[i])
-    log_likelihood = log_likelihood + (risk_score[i] - log(sum(exp_risk_score[risk_set])))
-  }
-  return(log_likelihood)
-}
-```
-
-```{r}
-lasso_objective <- function(beta, X, time, sigma, lambda) {
-  partial_log_likelihood <- cox_partial_likelihood(beta, X, time, sigma)
-  l1_penalty <- lambda * sum(abs(beta))
-  return(-partial_log_likelihood + l1_penalty)
-}
-```
-
-```{r}
-# Cross-validation function for LASSO OR Ridge in Cox model
-cross_validate_lambda <- function(dt, true_surv, lambda_values, var_name, alpha, estimation_method, time_point, max_intervals = 80, k = 5) {
-  n <- nrow(dt)
+# Cross-validation function for LASSO OR Ridge OR Elastic Net in Logistic OR Cox model
+cross_validate_lambda <- function(dt, lambda_values, var_name, alpha_num, time_point, max_intervals = 60, k = 5, method = "glm") {
+  # This function performs k-fold cross-validation for a penalized logistic regression
+  # or Cox proportional hazards model using different regularization parameters (lambda values and the number of intervals).
+  # Arguments:
+  # dt: Dataframe containing the dataset with covariates and event status.
+  # lambda_values: A grid of regularization parameters (lambda) to test.
+  # var_name: A vector of variable names to use as predictors in the model.
+  # alpha_num: Alpha parameter for glmnet, controls the type of regularization (0 = ridge, 1 = lasso, 0 < alpha < 1 = elastic net).
+  # time_point: A predefined time point at which to evaluate the survival probabilities.
+  # max_intervals: Maximum number of intervals for binning IPCW weights (default = 60).
+  # k: Number of folds for cross-validation (default = 5).
+  # method: The type of model to fit.
+  #         Options are "glm" for logistic regression and "cox" for Cox proportional hazards.
+  n = nrow(dt)
   X = dt[var_name]
-  results = matrix(NA, nrow = length(lambda_values), ncol = max_intervals)
-  for(i in seq_along(lambda_values)){
-    lambda = lambda_values[i]
-    for (num_intervals in 1:max_intervals) {
-      folds = sample(rep(1:k, length.out = n))
-      fold_performance = numeric(k)
-      interval = seq(0, time_point, length.out = num_intervals + 1)
-      for (f in 1:k) {
-        train_data = dt[folds!=f, ]
-        test_data = dt[folds==f, ]
-        test_true_surv = true_surv[folds==f, ]
-        train_data_with_weight = bin_combined_ipcw(interval,train_data, return_type="dataset")
-        lasso_cox = glmnet(as.matrix(train_data_with_weight[var_name]), 
-                           Surv(train_data_with_weight$observed_time, train_data_with_weight$sigma), 
-                           family = "cox", 
-                           weights = train_data_with_weight$IPCW, 
-                           alpha = alpha, 
-                           lambda = lambda)
-        est_beta = coef(lasso_cox, s = lambda)
-        test_lp = rowSums(sweep(test_data[var_name],2,as.vector(est_beta),"*"))
+  folds = sample(rep(1:k, length.out = n))
+  results <- array(0, dim = c(length(lambda_values), max_intervals, 3))
+  for (num_intervals in 1:max_intervals) {
+    # fold performance_metric[i, 1, j] represents OLS Error with lambda_value[i] and j intervals
+    # fold performance_metric[i, 2, j] represents C-index with lambda_value[i] and j intervals
+    # fold performance_metric[i, 3, j] represents -Log-likelihood with lambda_value[i] and j intervals
+    fold_performance_metric = array(0, dim = c(length(lambda_values), 3, k))
+    for (f in 1:k) {
+      train_data = dt[folds!=f,]
+      test_data = dt[folds==f,]
+      test_IPCW = get_IPCW_relevant(test_data, time_point, return_type = "IPCW")
+      test_true_surv = (true_survival_function(dist, time_point, params = params))^(test_data$power)
+      # Get the expanded train dataset using combined IPCW
+      expanded_train_data_with_weight = bin_combined_ipcw(interval,train_data, return_type="dataset")
+      train_weight_X = expanded_train_data_with_weight[var_name]
+      valid_indices <- which(expanded_train_data_with_weight$IPCW > 0)
+      filtered_train_X <- train_weight_X[valid_indices, ]
+      filtered_train_E <- expanded_train_data_with_weight$E[valid_indices]
+      filtered_weights <- expanded_train_data_with_weight$IPCW[valid_indices]
+      if(method == "cox"){
+        penalty_model <- tryCatch({
+                glmnet(
+                  filtered_train_X, 
+                  filtered_train_E, 
+                  family = "cox", 
+                  weights = filtered_weights, 
+                  alpha = alpha_num, 
+                  lambda = lambda_values
+                )
+              }, warning = function(w) {
+                message("Warning in fitting glmnet for lambda = ", lambda, ": ",k , w$message)
+                return(NULL)
+              }, error = function(e) {
+                message("Error in fitting glmnet for lambda = ", lambda, ": ", e$message)
+                return(NULL)
+              })
         formula = as.formula(paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + ")))
-        cox_model = coxph(formula, data = train_data, method="breslow")
-        baseline_hazard = basehaz(cox_model,centered=FALSE)
+        cox_model = coxph(formula, data = expanded_train_data_with_weight, method="breslow")
+        baseline_hazard = basehaz(cox_model, centered=FALSE)
         BLH_timepoint = baseline_hazard$hazard[which.min(abs(baseline_hazard$time - time_point))]
-        est_test_surv = exp(-BLH_timepoint*exp(test_lp))
-        if(estimation_method =="ols"){
-          fold_performance[f] = ols_error(test_true_surv, est_test_surv)
+      }
+      else{
+        penalty_model <- tryCatch({
+          glmnet(
+            filtered_train_X, 
+            filtered_train_E, 
+            family = "binomial", 
+            weights = filtered_weights, 
+            alpha = alpha_num, 
+            lambda = lambda_values
+          )
+        }, warning = function(w) {
+          message("Warning in fitting glmnet for lambda = ", lambda, ": ",k , w$message)
+          return(NULL)
+        }, error = function(e) {
+          message("Error in fitting glmnet for lambda = ", lambda, ": ", e$message)
+          return(NULL)
+        })
+      }
+      
+      for (i in seq_along(lambda_values)){
+        coef = as.vector(coef(penalty_model, s=lambda_values[i]))
+        if(all(coef==0)){
+          est_test_event_probability = 1
         }
-        else if(estimation_method == "C-index"){
-          fold_performance[f] = c_index_censoring(test_data$observed_time, test_data$sigma,1-est_test_surv)
-        }
-        else if(estimation_method == "Calibration"){
-          fold_performance[f] = calibration_statistic("uniform", 5, 1-est_test_surv, test_data$observed_time, test_data$sigma, time_point)
+        else{
+          intercept = coef[1]
+          est_beta_lambda_i = coef[-1]
+          test_lp = intercept + as.matrix(test_data[var_name]) %*% est_beta_lambda_i
+          if(method=="cox"){
+            # Cox regression
+            est_test_surv_probability = exp(-BLH_timepoint*exp(test_lp))
+            est_test_event_probability = 1 - est_test_surv_probability
+          }
+          else{
+            # logistic regression
+            est_test_event_probability = exp(test_lp) / (1 + exp(test_lp))
+            est_test_surv_probability = 1-est_test_event_probability
+          }
+          fold_performance_metric[i, 1, f] = ols_error(test_true_surv, est_test_surv_probability)
+          fold_performance_metric[i,2,f] = c_index_censoring(test_data$observed_time,
+                                                       test_data$sigma,
+                                                       est_test_event_probability)
+          fold_performance_metric[i,3,f] = weighted_loglikelihood(test_IPCW, 
+                                                        test_data$E, 
+                                                        est_test_event_probability)
         }
       }
-      results[i, num_intervals] = mean(fold_performance)
+    }
+    for (i in seq_along(lambda_values)) {
+      results[i, num_intervals, 1] = mean(fold_performance_metric[i, 1, ], na.rm = TRUE)
+      results[i, num_intervals, 2] = mean(fold_performance_metric[i, 2, ], na.rm = TRUE)
+      results[i, num_intervals, 3] = mean(fold_performance_metric[i, 3, ], na.rm = TRUE)
     }
   }
-min_val = min(results, na.rm = TRUE)
-optimal_index = which(results == min_val, arr.ind = TRUE)
-optimal_lambda = lambda_values[optimal_index[1, 1]]
-optimal_intervals = optimal_index[1, 2]
-return(list(
-  best_lambda = optimal_lambda,
-  best_number_of_bins = optimal_intervals,
-  results = results
-))
+  return(results)
 }
 ```
 
