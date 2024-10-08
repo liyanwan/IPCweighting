@@ -28,7 +28,7 @@ true_survival_function <- function(dist,time,params = list()){
   } else if (dist == "Weibull") {
     return(exp(-(params$lambda_base * time)^params$alpha))
   } else if (dist == "log-normal") {
-    return(exp(plnorm(time, meanlog = params$mean, sdlog = params$sd, lower = FALSE, log = TRUE)))
+    return(plnorm(time, meanlog = params$mean, sdlog = params$sd, lower = FALSE))
   } else if (dist == "log-logistic") {
     return(1 / (1 +(params$lambda_base * time)^params$alpha))
   } else {
@@ -51,21 +51,22 @@ calibration_statistic <- function(type=c("uniform","quantile","random"), num_bin
     data$bin = cut(data$predicted_risk_probability, breaks = num_bins, labels = FALSE, include.lowest = TRUE)
   }
   else if(type == "quantile"){
-    data$bin = cut(data$predicted_risk_probability, 
-                   breaks = quantile(data$predicted_risk_probability, probs = seq(0,1,by = 1/num_bins)), 
+    data$bin = cut(data$predicted_risk_probability,
+                   breaks = quantile(data$predicted_risk_probability, probs = seq(0,1,by = 1/num_bins)),
                    labels = FALSE, include.lowest = TRUE)
   }
   else if(type == "random"){
-    data$bin = sample(1:bins, length(data$predicted_risk_probability), replace = TRUE)
+    data$bin = sample(1:num_bins, length(data$predicted_risk_probability), replace = TRUE)
   }
   else{
     stop("Type can only be one of 'uniform', 'quantile', or 'random'")
   }
   K = 0
-  avg_pred_prob = numeric(num_bins)
-  observed_prob = numeric(num_bins)
+  avg_pred_probs = numeric(num_bins)
+  observed_probs = numeric(num_bins)
   for (k in 1:num_bins) {
     bin_dt = data[data$bin == k, ]
+    if (nrow(bin_dt) == 0) next
     # compute the average of predicted risk in bin k
     avg_pred_prob = mean(bin_dt$predicted_risk_probability)
     km_fit = survfit(Surv(observed_time, sigma) ~ 1, data = bin_dt)
@@ -75,15 +76,23 @@ calibration_statistic <- function(type=c("uniform","quantile","random"), num_bin
     avg_pred_probs[k] = avg_pred_prob
     observed_probs[k] = bin_KM_pred
     num_at_risk = km_fit$n.risk[km_fit$time <= time_point]
-    # print(num_at_risk)
     num_events = km_fit$n.event[km_fit$time <= time_point]
-    # Greenwood's formula is the most common estimator to approximate KM estimator's variance
-    greenwood_var = (surv_summary$surv)^2 * sum(num_events/(num_at_risk*(num_at_risk - num_events)))
-    K = K + ((avg_pred_prob - bin_KM_pred)^2 / greenwood_var)
+    if (length(num_at_risk) == 0 || any(num_at_risk <= 0)) {
+        next
+    }
+    if (any(abs(num_at_risk - num_events) < 1e-6)) {
+        next
+    }
+    greenwood_var = (surv_summary$surv)^2 * sum(num_events / (num_at_risk * (num_at_risk - num_events + 1e-5)))
+    if (!is.finite(greenwood_var) || greenwood_var == 0) {
+        next
+    } else {
+        K = K + ((avg_pred_prob - bin_KM_pred)^2 / greenwood_var)
+    }
   }
-  plot(avg_pred_probs, observed_probs, xlab = "Predicted Risk", ylab = "Observed Survival (KM)", 
+  plot(observed_probs, avg_pred_probs-observed_probs, xlab = "observed Risk", ylab = "Pred - Observed Survival", 
        main = "Calibration Plot", pch = 19, col = "blue")
-  abline(0, 1, col = "red", lty = 2)
+  abline(0, 0, col = "red", lty = 2)
   return(K)
 }
 
@@ -112,11 +121,27 @@ c_index_censoring <- function(observed_time, sigma, predicted_risk) {
   return(c_index)
 }
 
-deviance_data <- function(status, predicted_probability){
-  predicted_probability = pmax(pmin(predicted_probability, 1 - 1e-15), 1e-15)
-  return(sum(status*log(predicted_probability)+(1-status)*log(1-predicted_probability)))
+
+weighted_loglikelihood <- function(test_IPCW, status, predicted_event_prob, penalized=FALSE, alpha =1, lambda=NULL, beta=NULL) {
+  predicted_event_prob = pmax(pmin(predicted_event_prob, 1 - 1e-6), 1e-6)
+  log_likelihood = -sum(
+    ifelse(test_IPCW == 0, 
+           0,
+           test_IPCW*(status * log(predicted_event_prob) + (1-status)*log(1 - predicted_event_prob))
+          )
+  )
+  if (!penalized) {
+    return(log_likelihood)
+  } else {
+    if (is.null(lambda)||is.null(beta)) {
+      stop("Lambda and beta must be provided for penalized log-likelihood.")
+    }
+    penalized_log_likelihood = log_likelihood - lambda * (alpha * sum(beta^2) + (1-alpha) * sum(abs(beta)))
+    return(penalized_log_likelihood)
+  }
 }
 ```
+
 
 ```{r}
 get_status <- function(observed_time, sigma, time_point){
@@ -238,16 +263,16 @@ sim_censor_time <- function(dist = "exponential", n, params = list()){
   # Returns:
   #   A numeric vector of length n representing the simulated censoring times based on the specified distribution.
   if (dist == "exponential") {
-    if (!is.null(params$lambda)) {
-      return(rexp(n, rate = params$lambda))
+    if (!is.null(params$lambda_base)) {
+      return(rexp(n, rate = params$lambda_base))
     }
     else{
       stop("Please input the correct parameters.")
     }
   } 
   else if (dist == "Weibull") {
-    if (!is.null(params$lambda) & !is.null(params$alpha)) {
-      return(rweibull(n, shape = params$alpha, scale = 1/params$lambda))
+    if (!is.null(params$lambda_base) & !is.null(params$alpha)) {
+      return(rweibull(n, shape = params$alpha, scale = 1/params$lambda_base))
     }
     else{
       stop("Please input the correct parameters.")
@@ -255,9 +280,9 @@ sim_censor_time <- function(dist = "exponential", n, params = list()){
   } 
   else if (dist == "log-logistic") {
     # Log-logistic distribution using qlogis for quantiles
-    if (!is.null(params$lambda) & !is.null(params$alpha)) {
+    if (!is.null(params$lambda_base) & !is.null(params$alpha)) {
       u <- runif(n)
-      return((1/(params$lambda))* (u / (1 - u))^(1 / params$alpha))
+      return((1/(params$lambda_base))* (u / (1 - u))^(1 / params$alpha))
     }
     else{
       stop("Please input the correct parameters.")
@@ -308,43 +333,6 @@ sim_beta <- function(prop, time_point, mean_X){
 ```
 
 ```{r}
-simulate_U <- function(n) {
-  # Simulate S(t|X_i) = U.
-  # It is a helper function of sim_T below, using inverse cumulative function.
-  # Arguments:
-  # n: An integer specifying the number of values to simulate in the following ways:
-  # U ~ unif(0.01,0.25) with probability 0.4
-  # U ~ unif(0.25, 0.5) with probability 0.35
-  # U ~ unif(0.5, 0.75] with probability 0.15
-  # U ~ unif(0.75, 0.99) with probability 0.1
-  # Returns:
-  # A numeric vector where each element is sampled from a pievewise uniform distribution.
-  
-  simulated_values = numeric(n)
-  probs = c(0.4, 0.35, 0.15, 0.1)
-  intervals = matrix(c(0.01, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 0.99), ncol = 2, byrow = TRUE)
-  cum_probs = cumsum(probs)
-    for (i in 1:n) {
-      U = runif(1)
-      if (U <= cum_probs[1]) {
-        simulated_values[i]= runif(1, intervals[1, 1], intervals[1, 2]) 
-        # Simulate from (0, 0.25]
-      } else if (U <= cum_probs[2]) {
-        simulated_values[i] = runif(1, intervals[2, 1], intervals[2, 2])  
-        # Simulate from (0.25, 0.5]
-      } else if (U <= cum_probs[3]) {
-        simulated_values[i] = runif(1, intervals[3, 1], intervals[3, 2])  
-        # Simulate from (0.5, 0.75]
-      } else {
-        simulated_values[i] = runif(1, intervals[4, 1], intervals[4, 2])  
-        # Simulate from (0.75, 1]
-      }
-    }
-  return(simulated_values)
-}
-```
-
-```{r}
 sim_T <- function(dist, n, params=list(), U_notuni){
   # Simulate event time based on baseline survival function.
   # Arguments:
@@ -356,7 +344,6 @@ sim_T <- function(dist, n, params=list(), U_notuni){
   #     - For 'Weibull', include 'lambda_base' (1/scale parameter), 'alpha' (shape parameter), and 'lc' (linear combination of covariates).
   #     - For 'log-logistic', include 'lambda_base' (1/scale parameter), 'alpha' (shape parameter), and 'lc' (linear combination of covariates).
   #     - For 'log-normal', include 'mean' (mean of the log-scale), 'sd' (standard deviation of the log-scale), and 'lc' (linear combination of covariates).
-  #   U_notuni: A logical value indicating whether to simulate U from simulate_U (TRUE) or from a unif[0,1] (FALSE).
   # Returns:
   #   A numeric vector representing the simulated event times based on the specified distribution.
   
@@ -368,20 +355,19 @@ sim_T <- function(dist, n, params=list(), U_notuni){
     }
 } else if (dist == "Weibull") {
     if (!is.null(params$lambda_base) & !is.null(params$alpha)& !is.null(params$lc)) {
-      U = simulate_U(n)
+      U = runif(n, 0, 1)
     }
       return(1/params$lambda_base*(-log(U)/exp(params$lc))^(1/params$alpha))
   }
  else if (dist == "log-logistic") {
     if (!is.null(params$lambda_base) & !is.null(params$alpha)) {
-      U = simulate_U(n)
+      U = runif(n, 0, 1)
       return((1/(params$lambda_base)) * ((1-U^(1/exp(params$lc))) / U^(1/exp(params$lc)))^(1 / params$alpha))
     }
 } else if (dist == "log-normal") {
     if (!is.null(params$mean) & !is.null(params$sd)& !is.null(params$lc)) {
-      U = simulate_U(n)
-      S_t = 1-U^(1 / exp(params$lc))
-      return(exp(qnorm(1 - S_t) * params$sd + params$mean))
+      U = runif(n, 0, 1)
+      return(exp(qnorm(1 - U^(1 / exp(params$lc))) * params$sd + params$mean))
     }
 } else {
     stop("Unsupported distribution")
@@ -393,9 +379,32 @@ sim_T <- function(dist, n, params=list(), U_notuni){
 Get_Ghat <-function(time_point, full_dt){
   # A helper function, using Kaplan Meier estimator of survival distribution of the censoring times.
   km_censor = survfit(Surv(observed_time, 1-sigma)~1, data = full_dt)
-  survest_Xi = stepfun(km_censor$time, c(1, km_censor$surv))
-  return(survest_Xi)
+  step_function = stepfun(km_censor$time, c(1, km_censor$surv))
+  return(step_function)
 }
 ```
 
+```{r}
+km_surv_at_times <- function(observed_time, sigma, specific_times) {
+  # A helper function to check if Ghat is correct
+  data <- data.frame(time = observed_time, sigma = sigma)
+  data <- data[order(data$time), ]  # Sort data by time
+  survival_probs <- numeric(length(specific_times))
+  for (j in seq_along(specific_times)) {
+    specific_time <- specific_times[j]
+    survival <- 1
+    for (i in seq_len(nrow(data))) {
+      if (data$time[i] > specific_time) {
+        break
+      }
+      n_risk <- nrow(data) - i + 1  # Number at risk
+      if (data$sigma[i] == 1) {
+        survival <- survival * (n_risk - 1) / n_risk
+      }
+    }
+    survival_probs[j] <- survival
+  }
+  return(survival_probs)
+}
+```
 
