@@ -19,11 +19,19 @@ source("~/IPCweighting/IPCW/estimation_naive_cox_ipcw.R")
 
 ```{r}
 bin_combined_ipcw<-function(interval,train_data, return_type="model"){
-  # This is used to get the model of "binned" IPCW
+  # This function estimates a model or returns a dataset using a COMBINED "binned" IPCW approach.
+  # Arguments:
+  #   - interval: A vector of time points defining the time intervals (bins).
+  #   - train_data: Data frame containing the observed time, event time, and censoring time for each subject.
+  #   - return_type: Specifies the output type ("dataset" for weighted data or "model" for a fitted model).
+  # Returns:
+  #   - A data frame with IPCW weights and status for each time bin or a logistic regression model.
+
   total=data.frame()
   for(i in 1:(length(interval)-1)){
     start = interval[i]
     end = interval[i+1]
+    Ghat = Get_Ghat(time_point, train_data)
     numerator = Ghat(start)
     batch = train_data[train_data$observed_time>start,]
     batch$E = get_status(batch$observed_time,batch$sigma,end)
@@ -50,11 +58,18 @@ bin_combined_ipcw<-function(interval,train_data, return_type="model"){
 
 ```{r}
 bin_surv_probability <-function(model_list=list(), data, var_name){
+  # This function computes predicted survival probabilities for each time interval using a list of fitted models.
+  # Arguments:
+  #   - model_list: A list of logistic regression models, each corresponding to a different time interval.
+  #   - data: A data frame containing the covariates used for prediction.
+  #   - var_name: A vector of covariate names to use for making predictions.
+  # Returns:
+  #   - A data frame containing the predicted survival probabilities for each bin.
   pred_survival_probability = data.frame()
   for(i in 1:length(model_list)){
     name_of_bin = paste0("Bin_", i)
-    # survprob_in_bin = 1 - predict(model, newdata = data[var_name], type = "response")
-    survprob_in_bin = data.frame(setNames((1 - predict(model_list[[i]], newdata = data[var_name], type = "response")), name_of_bin))
+    survprob_in_bin = data.frame(name_of_bin = (1 - predict(model_list[[i]], newdata = data[var_name], type = "response")))
+    colnames(survprob_in_bin) = name_of_bin
     if (ncol(pred_survival_probability) == 0) {
       pred_survival_probability = survprob_in_bin
     }
@@ -68,21 +83,30 @@ bin_surv_probability <-function(model_list=list(), data, var_name){
 
 ```{r}
 bin_separate_ipcw <-function(interval,train_data){
-  # This is used to get the model of "binned" IPCW (different models for different bins)
+  # This is used to get the model of "binned" IPCW, where each start time in the interval gets its own model.
+  # Arguments:
+  #   - interval: A vector of time points defining the time intervals (bins).
+  #   - train_data: Data frame containing observed time, event time, and censoring time.
+  # Returns:
+  #   - model_list: A list of fitted logistic regression models, one for each time interval.
   model_list = list()
   for(i in 1:(length(interval)-1)){
     start = interval[i]
     end = interval[i+1]
+    Ghat = Get_Ghat(time_point, train_data)
     numerator = Ghat(start)
     batch = train_data[train_data$observed_time>start,]
-    batch$E = NULL
     batch$E = get_status(batch$observed_time,batch$sigma,end)
     batch$G = ifelse(batch$observed_time<end, Ghat(batch$observed_time),Ghat(end))
     batch$IPCW = ifelse(pmin(batch$event_time, end)<batch$censor_time, 
                         numerator/batch$G, 
                         0)
     formula = as.formula(paste("E ~", paste(var_name, collapse = " + ")))
-    batch_model = glm(formula, data = batch, family = binomial, weights = IPCW)
+    batch_model = tryCatch({
+      glm(formula, data = batch, family = binomial, weights = IPCW)
+    }, error = function(e) {
+          message("Error in fitting glm model for IPCW: ", data.frame(batch$IPCW), e$message)
+        })
     model_list[[i]] = batch_model
   }
   return(model_list)
