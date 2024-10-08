@@ -10,11 +10,11 @@ output: html_document
 ```
 
 ```{r}
-check_time_vs_status <- function(dt,time_point){
+check_time_vs_status <- function(observed_time, sigma, time_point){
   # return a table shows the number of E=0, E=1, E unknown, respectively
-  num_E_1 = sum((get_status(dt$observed_time, dt$sigma, time_point)) == 1, na.rm = TRUE)
-  num_E_0 = sum((get_status(dt$observed_time, dt$sigma, time_point)) == 0, na.rm = TRUE)
-  num_E_unknown = sum(is.na(get_status(dt$observed_time, dt$sigma, time_point)))
+  num_E_1 = sum((get_status(observed_time, sigma, time_point)) == 1, na.rm = TRUE)
+  num_E_0 = sum((get_status(observed_time, sigma, time_point)) == 0, na.rm = TRUE)
+  num_E_unknown = sum(is.na(get_status(observed_time, sigma, time_point)))
   status_table = data.frame(status = c("E = 1", "E = 0", "E unknown"),
                             Count = c(num_E_1, num_E_0, num_E_unknown),
                             stringsAsFactors = FALSE)
@@ -24,13 +24,14 @@ check_time_vs_status <- function(dt,time_point){
 ```
 
 ```{r}
-check_censor_in_time_interval<- function(dt,time_point){
+check_censor_in_time_interval<- function(observed_time, sigma, time_point){
   # return a table shows the number of observations censored between i-1 and i, where i=1,2,..., time_point
   result_table =data.frame(Time_Interval = character(),
                          Count = integer(),
                          stringsAsFactors = FALSE)
+  data = data.frame(sigma = sigma, observed_time = observed_time)
   for (i in 1:time_point) {
-    count = nrow(dt[dt$sigma == 0 & dt$observed_time >= i - 1 & dt$observed_time <= i, ])
+    count = nrow(data[data$sigma == 0 & data$observed_time >= i - 1 & data$observed_time <= i, ])
     result_table = rbind(result_table, 
                           data.frame(Time_Interval = paste(i-1, "to", i), 
                                      Count_Censored_Data_in_Time_Tnterval = count))
@@ -38,3 +39,24 @@ check_censor_in_time_interval<- function(dt,time_point){
   return(result_table)
 }
 ```
+
+```{r}
+check_total_observations_in_time_interval <- function(observed_time, sigma, time_point){
+  result_table =data.frame(Time_Interval = character(),
+                       Count = integer(),
+                       stringsAsFactors = FALSE)
+  data = data.frame(sigma = sigma, observed_time = observed_time)
+  for (i in 1:time_point) {
+    count = nrow(data[data$observed_time >= i - 1 & data$observed_time <= i, ])
+    result_table = rbind(result_table, 
+                          data.frame(Time_Interval = paste(i-1, "to", i), 
+                                     Number_of_Observations_in_Time_Tnterval = count))
+  }
+  count2 = nrow(data[data$observed_time > time_point, ])
+  result_table = rbind(result_table,
+                       data.frame(Time_Interval = paste(time_point, " above"),
+                                  Number_of_Observations_in_Time_Tnterval = count2))
+  return(result_table)
+}
+```
+
