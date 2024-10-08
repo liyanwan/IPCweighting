@@ -25,13 +25,13 @@ source("~/IPCweighting/SimulationFunction/Status_table.R")
 
 ```{r}
 # Simulate covariates and event_time
-num_obs = 150
+num_obs = 500
 time_point = 5
-num_covariates = 100
+num_covariates = 400
 X = matrix(rnorm(num_obs*num_covariates), nrow=num_obs, ncol = num_covariates)
 colnames(X) = paste0("X", 1:num_covariates)
 mean_X = c()
-beta = c(rnorm(10, mean = 0.5, sd = 0.5), rep(0,  num_covariates-10)) 
+beta = c(rnorm(15, mean = 0.5, sd = 0.7), rep(0.01,  num_covariates-15)) 
 # length(mean_X),list(start = -2, end = 2))
 if (ncol(X)!=length(beta)){
   stop("X and beta are not multiplicable")
@@ -40,19 +40,19 @@ var_name = colnames(X)
 ```
 
 ```{r}
-dist = "exponential"
+dist = "log-normal"
 params = list()
 time_point = 5
 if(dist=="exponential"){
-  params$lambda_base = 0.1
+  params$lambda_base = 2
 }else if(dist == "Weibull"){
-  params$lambda_base = 1/2
-  params$alpha = 2
+  params$lambda_base = 4
+  params$alpha = 0.5
 } else if(dist == "log-logistic"){
   params$lambda_base = 1
   params$alpha = 1/2
 } else if (dist == "log-normal"){
-  params$mean = 1
+  params$mean = 1.6
   params$sd = 0.7
 } else{
   stop("Unsupported distribution")
@@ -74,10 +74,11 @@ if(censor_dist=="exponential"){
   censor_params$sd = params$sd/2
 } else if (censor_dist == "uniform"){
   censor_params$start = 1
-  censor_params$end = 7
+  censor_params$end = 8
 } else{
   stop("Unsupported distribution")
 }
+plot_pdf(dist,params,time_point)
 ```
 
 ```{r}
