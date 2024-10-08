@@ -52,7 +52,7 @@ simulation_data <-function(num_obs,
                            X){
   check_event_params = check_params(event_dist, event_params, "event")
   check_censor_params = check_params(censor_dist, censor_params, "censor")
-  dt = X
+  dt = data.frame(X)
   dt$event_time = sim_T(event_dist, num_obs, params=event_params)
   dt$censor_time = sim_censor_time(censor_dist, num_obs, params = censor_params)
   dt$observed_time = pmin(dt$event_time, dt$censor_time)
