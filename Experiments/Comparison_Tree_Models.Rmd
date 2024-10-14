@@ -1,0 +1,174 @@
+---
+title: 'CT_model_Comparison'
+author: "Liyan Wang"
+date: "2024-10-12"
+output: html_document
+---
+
+```{r}
+rm(list = ls())
+library(survival)
+library(dplyr)
+```
+
+```{r}
+knitr::purl("~/IPCweighting/SimulationFunction/IPCWmethod.Rmd", output = "~/IPCweighting/SimulationFunction/IPCWmethod.R")
+source("~/IPCweighting/SimulationFunction/IPCWmethod.R")
+
+knitr::purl("~/IPCweighting/IPCW/Binned_IPCW_Function.Rmd", output = "~/IPCweighting/IPCW/Binned_IPCW_Function.R")
+source("~/IPCweighting/IPCW/Binned_IPCW_Function.R")
+
+knitr::purl("~/IPCweighting/SimulationFunction/Status_table.Rmd", output = "~/IPCweighting/SimulationFunction/Status_table.R")
+source("~/IPCweighting/SimulationFunction/Status_table.R")
+
+knitr::purl("~/IPCweighting/SimulationFunction/Data_Simulation.Rmd", output = "~/IPCweighting/SimulationFunction/Data_Simulation.R")
+source("~/IPCweighting/SimulationFunction/Data_Simulation.R")
+```
+
+```{r}
+library(partykit)
+# parameters of event_time
+dist = "log-normal"
+time_point = 5
+params = list()
+if(dist=="exponential"){
+  params$lambda_base = 2
+}else if(dist == "Weibull"){
+  params$lambda_base = 5
+  params$alpha = 2
+} else if(dist == "log-logistic"){
+  params$lambda_base = 4
+  params$alpha = 1.2
+} else if (dist == "log-normal"){
+  params$mean = 2
+  params$sd = 0.8
+} else{
+  stop("Unsupported distribution")
+}
+
+# parameters of censor_time
+censor_params = list()
+censor_dist = "uniform"
+if(censor_dist=="exponential"){
+  censor_params$lambda = 0.2
+}else if(censor_dist == "Weibull"){
+  censor_params$lambda = 0.5
+  censor_params$alpha = 2
+} else if(censor_dist == "log-logistic"){
+  censor_params$lambda = 4
+  censor_params$alpha = 1.2
+} else if (censor_dist == "log-normal"){
+  censor_params$mean = 2
+  censor_params$sd = 0.7
+} else if (censor_dist == "uniform"){
+  censor_params$start = 1
+  censor_params$end = 8
+} else{
+  stop("Unsupported distribution")
+}
+```
+
+```{r}
+evaluate_tree_survival_models <- function(dt, index, beta, seed, num_obs, num_covariates, dist, params, censor_dist, censor_params, time_point, train_prop = 0.7){
+  naive_performance <- vector("list", seed)
+  ipcw_performance <- vector("list", seed)
+  survtree_performance <- vector("list", seed)
+
+  for (i in 1:seed) {
+    # Generate covariates and continuous response
+    X <- matrix(rnorm(num_obs * num_covariates), nrow = num_obs, ncol = num_covariates)
+    colnames(X) <- paste0("X", 1:num_covariates)
+    Y_continuous <- generate_Y_continuous(X, index, beta)
+
+    # Prepare data for the tree
+    data_tree <- as.data.frame(X)
+    data_tree$Y_continuous <- Y_continuous
+
+    # Fit a regression tree and predict f(X)
+    tree_model_fX <- rpart(Y_continuous ~ ., data = data_tree)
+    f_X <- predict(tree_model_fX, data_tree)
+    params$lc <- f_X
+    power <- exp(params$lc)
+
+    # Simulate survival data
+    dt = simulation_data(num_obs, dist, params, censor_dist, censor_params, time_point, X)
+    dt$power <- power
+
+    # Split into training and testing data
+    train_index <- sample(seq_len(nrow(dt)), size = floor(train_prop * nrow(dt)))
+    train_data <- dt[train_index, ]
+    test_data <- dt[-train_index, ]
+    test_IPCW <- get_IPCW_relevant(test_data, time_point, return_type = "IPCW")
+
+    # Create a survival tree formula and fit the model
+    var_name <- colnames(X)
+    formula <- as.formula(paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + ")))
+    surv_tree <- rpart(formula, data = train_data)
+
+    # Predict hazards from the survival tree
+    hazards <- predict(surv_tree, newdata = test_data, type = "matrix")[, 1]
+
+    # Fit a parametric survival model and calculate probabilities
+    s0 <- survreg(Surv(observed_time, sigma) ~ 1, data = train_data, dist = "exponential")
+    e0 <- exp(-summary(s0)$coefficients[1])
+    surv_tree_surv_prob <- exp(-e0 * hazards * time_point)
+    surv_tree_event_prob <- 1 - surv_tree_surv_prob
+
+    # Compute true survival and model predictions
+    true_surv <- (true_survival_function(dist, time_point, params = params))^(test_data$power)
+    naive_survProb <- naive_estimate(train_data, test_data, var_name, "tree")
+    ipcw_survProb <- ipcw_estimate(train_data, test_data, time_point, var_name, "tree")
+
+    # Calculate OLS errors
+    ols_naive <- ols_error(true_surv, naive_survProb)
+    ols_ipcw <- ols_error(true_surv, ipcw_survProb)
+    ols_survtree <- ols_error(true_surv, surv_tree_surv_prob)
+
+    # Calculate C-index
+    c_index_naive <- c_index_censoring(test_data$observed_time, test_data$sigma, 1 - naive_survProb)
+    c_index_ipcw <- c_index_censoring(test_data$observed_time, test_data$sigma, 1 - ipcw_survProb)
+    c_index_st <- c_index_censoring(test_data$observed_time, test_data$sigma, surv_tree_event_prob)
+
+    # Calculate Weighted Brier Scores
+    Bscore_naive <- Weighted_Brier_Score(1 - naive_survProb, test_data$E, test_IPCW)
+    Bscore_ipcw <- Weighted_Brier_Score(1 - ipcw_survProb, test_data$E, test_IPCW)
+    Bscore_st <- Weighted_Brier_Score(surv_tree_event_prob, test_data$E, test_IPCW)
+
+    # Store performance metrics
+    naive_performance[[i]] <- c(ols_naive, c_index_naive, Bscore_naive)
+    ipcw_performance[[i]] <- c(ols_ipcw, c_index_ipcw, Bscore_ipcw)
+    survtree_performance[[i]] <- c(ols_survtree, c_index_st, Bscore_st)
+  }
+
+  # Convert lists to matrices for easier summarization
+  naive_matrix <- do.call(rbind, naive_performance)
+  ipcw_matrix <- do.call(rbind, ipcw_performance)
+  survtree_matrix <- do.call(rbind, survtree_performance)
+
+  # Calculate mean performance metrics for each method
+  results <- data.frame(
+    Method = c("Naive", "IPCW", "Survival Tree"),
+    Mean_OLS_Error = c(mean(naive_matrix[, 1]), mean(ipcw_matrix[, 1]), mean(survtree_matrix[, 1])),
+    Mean_C_Index = c(mean(naive_matrix[, 2]), mean(ipcw_matrix[, 2]), mean(survtree_matrix[, 2])),
+    Mean_Brier_Score = c(mean(naive_matrix[, 3]), mean(ipcw_matrix[, 3]), mean(survtree_matrix[, 3]))
+  )
+
+  return(results)
+}
+```
+
+```{r}
+num_obs = 500
+seed = 20
+time_point = 5
+num_covariates = 10
+ind = c(1,2,3, 7)
+beta = c(1,-2,0.5, 0.2)
+evaluate_tree_survival_models(dt, ind, beta, seed, num_obs, num_covariates, dist, params, censor_dist, censor_params, time_point)
+```
+
+
+```{r}
+
+```
+
