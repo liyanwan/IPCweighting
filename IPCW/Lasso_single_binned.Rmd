@@ -19,7 +19,7 @@ source("~/IPCweighting/IPCW/Binned_IPCW_Function.R")
 
 ```{r}
 # Cross-validation function for LASSO OR Ridge OR Elastic Net in Logistic OR Cox model
-cross_validate_lambda <- function(dt, lambda_values, var_name, alpha_num, time_point, max_intervals = 60, k = 5, method = "glm") {
+cross_validate_lambda <- function(dt, lambda_values, var_name, alpha_num, time_point, max_intervals = 60, k = 5, method = "glm", proxy_data = NULL) {
   # This function performs k-fold cross-validation for a penalized logistic regression
   # or Cox proportional hazards model using different regularization parameters (lambda values and the number of intervals).
   # Arguments:
@@ -44,7 +44,17 @@ cross_validate_lambda <- function(dt, lambda_values, var_name, alpha_num, time_p
     for (f in 1:k) {
       train_data = dt[folds != f,]
       test_data = dt[folds == f,]
-      test_IPCW = get_IPCW_relevant(test_data, time_point, return_type = "IPCW")
+      if(!is.null(proxy_data)){
+        # Get the IPCW values for the combined data
+        test_data_modified = test_data %>% select(-power)
+        test_proxy = rbind(test_data_modified, proxy_data)
+        total_IPCW = get_IPCW_relevant(test_proxy, time_point, return_type = "IPCW")
+        # Extract the IPCW values corresponding to test_data
+        test_IPCW = total_IPCW[1: nrow(test_data)]
+      }
+      else{
+        test_IPCW = get_IPCW_relevant(test_data, time_point, return_type = "IPCW")
+      }
       test_true_surv = (true_survival_function(dist, time_point, params = params))^(test_data$power)
       # Get the expanded train dataset using combined IPCW
       expanded_train_data_with_weight = bin_combined_ipcw(interval,train_data, return_type="dataset")
@@ -53,32 +63,32 @@ cross_validate_lambda <- function(dt, lambda_values, var_name, alpha_num, time_p
       filtered_train_X <- train_weight_X[valid_indices, ]
       filtered_train_E <- expanded_train_data_with_weight$E[valid_indices]
       filtered_weights <- expanded_train_data_with_weight$IPCW[valid_indices]
-      if(method == "cox"){
-        penalty_model <- tryCatch({
-                glmnet(
-                  filtered_train_X, 
-                  filtered_train_E, 
-                  family = "cox", 
-                  weights = filtered_weights, 
-                  alpha = alpha_num, 
-                  lambda = lambda_values
-                )
-              }, warning = function(w) {
-                message("Warning in fitting glmnet for lambda = ", lambda_values, ": ",k , w$message)
-                return(NULL)
-              }, error = function(e) {
-                message("Error in fitting glmnet for lambda = ", lambda_values, ": ", e$message)
-                return(NULL)
-              })
-        test_lp = predict(penalty_model, newx = as.matrix(test_data[var_name]), type = "link")
-        formula = as.formula(paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + ")))
-        cox_model = coxph(formula, data = expanded_train_data_with_weight, method="breslow")
-        baseline_hazard = basehaz(cox_model, centered=FALSE)
-        BLH_timepoint = baseline_hazard$hazard[which.min(abs(baseline_hazard$time - time_point))]
-        est_test_surv_probability = (exp(-BLH_timepoint*exp(test_lp)))^num_intervals
-        est_test_event_probability = 1 - est_test_surv_probability
-      }
-      else{
+      # if(method == "cox"){
+      #   penalty_model <- tryCatch({
+      #           glmnet(
+      #             filtered_train_X, 
+      #             filtered_train_E, 
+      #             family = "cox", 
+      #             weights = filtered_weights, 
+      #             alpha = alpha_num, 
+      #             lambda = lambda_values
+      #           )
+      #         }, warning = function(w) {
+      #           message("Warning in fitting glmnet for lambda = ", lambda_values, ": ",k , w$message)
+      #           return(NULL)
+      #         }, error = function(e) {
+      #           message("Error in fitting glmnet for lambda = ", lambda_values, ": ", e$message)
+      #           return(NULL)
+      #         })
+      #   test_lp = predict(penalty_model, newx = as.matrix(test_data[var_name]), type = "link")
+      #   formula = as.formula(paste("Surv(observed_time, sigma) ~", paste(var_name, collapse = " + ")))
+      #   cox_model = coxph(formula, data = expanded_train_data_with_weight, method="breslow")
+      #   baseline_hazard = basehaz(cox_model, centered=FALSE)
+      #   BLH_timepoint = baseline_hazard$hazard[which.min(abs(baseline_hazard$time - time_point))]
+      #   est_test_surv_probability = (exp(-BLH_timepoint*exp(test_lp)))^num_intervals
+      #   est_test_event_probability = 1 - est_test_surv_probability
+      # }
+      # else{
         penalty_model <- tryCatch({
           glmnet(
             filtered_train_X, 
@@ -95,11 +105,11 @@ cross_validate_lambda <- function(dt, lambda_values, var_name, alpha_num, time_p
           message("Error in fitting glmnet for lambda = ", lambda_values, ": ", e$message)
           return(NULL)
         })
-        est_test_surv_probability <- (1-predict(penalty_model, 
+        est_test_surv_probability = (1-predict(penalty_model, 
                                               newx = as.matrix(test_data[var_name]), 
                                               type = "response"))^num_intervals
         est_test_event_probability = 1 - est_test_surv_probability
-      }
+      
       for (i in 1:ncol(est_test_event_probability)) {
         fold_performance_ols[f, i] = ols_error(test_true_surv, est_test_surv_probability[, i])
         fold_performance_cindex[f, i] = c_index_censoring(test_data$observed_time,
