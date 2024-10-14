@@ -140,6 +140,14 @@ weighted_loglikelihood <- function(test_IPCW, status, predicted_event_prob, pena
     return(penalized_log_likelihood)
   }
 }
+
+Weighted_Brier_Score <- function(predicted_event_prob, observed_status, test_IPCW){
+  score = mean(ifelse(test_IPCW==0,
+                     0,
+                     test_IPCW * (predicted_event_prob - observed_status)^2))
+  return(score)
+}
+
 ```
 
 
