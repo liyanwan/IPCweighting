@@ -14,8 +14,8 @@ library(caret)
 library(ggplot2)
 library(knitr)
 
-knitr::purl("~/IPCweighting/IPCW/Binned_ICPW_ClassificationTree.Rmd", output = "~/IPCweighting/IPCW/Binned_ICPW_ClassificationTree.R")
-source("~/IPCweighting/IPCW/Binned_ICPW_ClassificationTree.R")
+knitr::purl("~/IPCweighting/IPCW/Binned_IPCW_ClassificationTree.Rmd", output = "~/IPCweighting/IPCW/Binned_IPCW_ClassificationTree.R")
+source("~/IPCweighting/IPCW/Binned_IPCW_ClassificationTree.R")
 
 knitr::purl("~/IPCweighting/SimulationFunction/Data_Simulation.Rmd", output = "~/IPCweighting/SimulationFunction/Data_Simulation.R")
 source("~/IPCweighting/SimulationFunction/Data_Simulation.R")
