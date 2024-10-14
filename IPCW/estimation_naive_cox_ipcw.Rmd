@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r}
-naive_estimate <- function(dt, newdt, var_name){
+naive_estimate <- function(dt, newdt, var_name, method="linear"){
   # Estimates survival probability at a given time point using a naive logistic regression approach.
   # Arguments:
   #   newdt: the dataset that you want to estimate survival probability
@@ -15,10 +15,20 @@ naive_estimate <- function(dt, newdt, var_name){
   #   A vector of predicted survival probabilities for each observation at the specified time point.
   naive_data = dt[!is.na(dt$E),]  # drop observations with unknown E
   formula = as.formula(paste("E ~", paste(var_name, collapse = " + ")))
-  naive_model = glm(formula, data = naive_data, family = binomial)
-  predicted_prob = predict(naive_model, newdata = newdt[var_name], type = "response")
-  predicted_prob = pmax(pmin(predicted_prob, 1 - 1e-15), 1e-15)
-  naive_newdt_survival_prob = 1-(predicted_prob)
+  if(method == "linear"){
+    naive_model = glm(formula, data = naive_data, family = binomial)
+    predicted_prob = predict(naive_model, newdata = newdt[var_name], type = "response")
+    predicted_prob = pmax(pmin(predicted_prob, 1 - 1e-15), 1e-15)
+    naive_newdt_survival_prob = 1-(predicted_prob)
+  }
+  else if (method=="tree"){
+    surv_tree <- rpart(formula,
+                 data = naive_data, 
+                 method = "class",
+                 control = rpart.control(minsplit = 20, cp = 0.01)) #default
+    est_test_event_prob = predict(surv_tree, newdata=newdt, type = "prob")[, "1"]
+    naive_newdt_survival_prob = 1-(est_test_event_prob)
+  }
   return(naive_newdt_survival_prob)
 }
 ```
@@ -57,7 +67,7 @@ get_IPCW_relevant <- function(dt, time_point, return_type = "data"){
 ```
 
 ```{r}
-ipcw_estimate <- function(dt,newdt, time_point, var_name){
+ipcw_estimate <- function(dt,newdt, time_point, var_name, method="linear"){
   # Estimates survival probability at a given time point using a naive logistic regression approach with IPCW.
   # Arguments:
   #   newdt: the dataset that you want to estimate survival probability
@@ -68,9 +78,20 @@ ipcw_estimate <- function(dt,newdt, time_point, var_name){
   #Apply Kaplan-Meier estimator of the survival distribution of the censoring times
   full_dt = get_IPCW_relevant(dt, time_point)
   formula = as.formula(paste("E ~", paste(var_name, collapse = " + ")))
-  ipcw_logistic_model = glm(formula, data = full_dt, family = binomial, weights = IPCW)
-  ipcw_pred_prob = 1-predict(ipcw_logistic_model, newdata = newdt[var_name], type = "response")
-  ipcw_survival_prob <- pmax(pmin(ipcw_pred_prob, 1 - 1e-15), 1e-15)
+  if (method == "linear"){
+    ipcw_logistic_model = glm(formula, data = full_dt, family = binomial, weights = IPCW)
+    ipcw_pred_prob = 1-predict(ipcw_logistic_model, newdata = newdt[var_name], type = "response")
+    ipcw_survival_prob <- pmax(pmin(ipcw_pred_prob, 1 - 1e-15), 1e-15)
+  }
+  else if(method == "tree"){
+    surv_tree <- rpart(formula,
+                 data = full_dt, 
+                 method = "class",
+                 weights = IPCW,
+                 control = rpart.control(minsplit = 20, cp = 0.01)) #default
+    est_test_event_prob = predict(surv_tree, newdata=newdt, type = "prob")[,"1"]
+    ipcw_survival_prob = 1-(est_test_event_prob)
+  }
   return(ipcw_survival_prob)
 }
 ```
