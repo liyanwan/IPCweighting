@@ -1,0 +1,186 @@
+---
+title: "Untitled"
+author: "Liyan Wang"
+date: "2025-04-05"
+output: html_document
+---
+
+## Simulate Dataset
+
+### 1. Specify the event-time and censoring-time distribution and the corresponding parameter list
+
+```{r}
+# Define the event time information
+# See sim_T for more details
+dist = "exponential"
+params <- list()
+params$lambda_base = 0.15
+#OR
+dist = "log-normal"
+params <- list()
+params$mean <- 1.5
+params$sd <- 0.8
+
+# Censoring time can be simulated from uniform, exponential, Weibull, log-logistic, and log-normal distribution
+# See sim_censor_time() for more details
+censor_params <- list()
+censor_dist <- "uniform"
+censor_params$start <- 1
+censor_params$end <- 8
+
+# Define the covariates information and beta
+num_obs <- 250
+num_covariates <- 25
+num_beta <- 25
+time_point = 5
+train_prop = 0.7
+set.seed(2003)
+X <- matrix(rnorm(num_obs * num_covariates), nrow = num_obs, ncol = num_covariates)
+colnames(X) <- paste0("X", 1:num_covariates)
+beta = rnorm(num_beta, mean = 0.1, sd = 0.5)
+
+# lc is the risk score, also called f(X)
+lc = rowSums(sweep(X,2,beta,"*"))
+# Compute the true survival probabilities for all samples
+true_surv = (true_survival_function(dist, time_point, params = params))^exp(lc)
+params$lc <- lc
+
+# set.seed(20)  # Set a seed for reproducibility in random sampling
+# dt is a dataframe consisting of X, event_time, censor_time, observed_time, sigma (delta), E (event status)
+dt <- simulation_data(num_obs, dist, params, censor_dist, censor_params, time_point, X)
+# M denotes the actual status. 1: event occured; 0: survived more than 5 years.
+dt$M = ifelse(dt$event_time<=5, 1, 0)
+# Y is a dataframe which must contain five columns: E, M, event time, sigma, observed_time
+Y <- data.frame(E = dt$E, M = dt$M, event_time = dt$event_time,sigma = dt$sigma, observed_time = dt$observed_time)
+```
+
+### 2. Review available models to fit the data
+
+There are FOUR available models, **which are the candidate elements for the *learner_list* which we will introduce in next section:**
+
+1.  base_glm_BinnedIPCW;
+
+2.  base_glmnet_BinnedIPCW;
+
+3.  base_CTree_BinnedIPCW;
+
+4.  base_mars_BinnedIPCW
+
+explanation of some parameters:
+
+-   1\. *X* and *Y*: two dataframes which are used to train the weighted glm model
+
+-   2\. *range_intervals*: a grid of tuning parameters of bins
+
+-   3\. if *foldid* is NULL, *k* represents the number of folds in the CV step
+
+-   4\. *measure*: The tuning selection metric
+
+```{r}
+base_glm_BinnedIPCW
+
+# function(X,
+#         Y,
+#         X_validation = NULL,
+#         time_point,
+#         range_intervals,
+#         k = 5,
+#         foldid = NULL,
+#         useMin = FALSE,
+#         proxy_data = NULL,
+#         measure = "C_index")
+```
+
+Return a list containing the cross-validation dataframe, the GLM model fitted using the optimal bin on X and Y, the predicted event probabilities for X_validation, and the selected optimal bin.
+
+### 3. Method to compare multiple models
+
+-   time_point: The time horizon
+
+-   X: The covariates matrix used to TRAIN the model
+
+-   Y: The dataframe which should contain five columns: E, M, event time, sigma, observed_time
+
+-   newX, newY: The new data (test data)
+
+-   measure: The tuning selection metrics. Simply set it to "Brier_Score" range_intervals:
+
+-   A grid of positive integers as the tuning grid for \`bins'. **NOTE: In our experiments, range_intervals is always set to 1 (range_intervals = 1) to make sure getting the results of Single IPCW machine learning models.**
+
+-   true_surv: The true survival probabilities of newX
+
+-   learner_list: a list of functions in section 2.
+
+-   params_list: A nested list of parameters which has the same length as learner_list.
+
+```{r}
+learner_list = list(base_glm_BinnedIPCW)
+params_list <- list(list(useMin = TRUE))
+#If useMin = TRUE, the hyperparameters are tuned to minimize the IPCW-adjusted Brier score. Otherwise the selected hyperparameters are within one standard deviation of the minimum error.
+
+# Another example:
+learner_list = list(base_glmnet_BinnedIPCW, 
+                    base_glmnet_BinnedIPCW)
+params_list <- list(list(lambda_values = 10^seq(-1, -5, length = 50), alpha_num = 0, useMin = TRUE)
+                    list(lambda_values = 10^seq(-1, -5, length = 50), alpha_num = 1, useMin = TRUE))
+# This means we are fitting both ridge and lasso to the same dataset. Each inner list corresponds to the parameters of the learner at the same index.
+```
+
+-   proxy_data: a dataframe as additional information to compute the test_IPCW. We set it to NULL.
+
+-   learner_k, learner_foldid: If learner_foldid is NULL, use learner_k as the number of folds to get a learner_foldid. All models are sharing the same foldid (naive, single, binned, survival(if applicable))
+
+-   include_naive: TRUE if you want to fit naive model
+
+-   include_SA: TRUE if you want to fit survival models corresponding to the learners in the learner_lists.
+
+-   surv_params: We set it to the default value list() across all cases. Only use it when you want to fit ADDITIVE COX and want to change the number of knots for each covariate.
+
+```{r}
+surv_params = list(k = 4)
+# THis means the number of knots for each covariate in additive cox is gam(...~ s(X1, k = 4)+s(X2, k = 4)...)
+```
+
+-   include_opt: TRUE if you want to include binned IPCW models. You can change the range of bins from max_intervals and min_intervals. (e.g. include_opt = TRUE, min_intervals = 1, max_intervals = 10 indicates that the binned model has a bin tuning grid c(1:10))
+
+```{r}
+pp = dIPCW_ML(......)
+
+pp$results_df # C-observed: The C index based on ranking observed times; C-event: The c index based on ranking event times; AUC, -logL, BS: AUC, log-likelihood and Brier score based on actual status (M); OLS: ols error.
+#          Method C-observed   C-event       AUC     -LogL         BS        OLS Opt_bins
+# 1   Single GLM1  0.8840090 0.8359970 0.9323308 0.3547077 0.10860038 0.04135509        1
+# 2 OPTBinned GLM  0.8671171 0.8375190 0.9451128 0.2916287 0.09306907 0.01888932        3
+# 3     Naive GLM  0.8817568 0.8329528 0.9330827 0.3766088 0.11989619 0.04747780       NA
+# 4         coxPH  0.8719684 0.8495238 0.9428571 0.3037722 0.09753034 0.01959521       NA
+
+pp$all_layer_testEP # A data frame of event probabilities for the test data, where each column corresponds to a different method.
+
+pp$model_list_with_bin #The information of the model corresponds to range_intervals. In our simulations this represents the information of SINGLE IPCW machine learning model.
+
+pp$model_list_opt # The information of the BINNED IPCW machine learning model. It equals to NULL of include_opt = FALSE
+```
+
+**I used dIPCW_ML_Split across cases because it helps split X and Y into training and testing data based on train_prop within the function. true_surv represents the true survival probabilities of X. The other parameters and the return are the same as dIPCW_ML.**
+
+```{r}
+dIPCW_ML_split
+
+# function(time_point,
+#          X,
+#          Y,
+#          train_prop,
+#          measure,
+#          range_intervals,
+#          true_surv = NULL,
+#          learner_list,
+#          params_list,
+#          proxy_data = NULL,
+#          learner_k = 5,
+#          learner_foldid = NULL,
+#          include_naive = FALSE,
+#          include_SA = FALSE,
+#          surv_params = list(),
+#          include_opt = FALSE,
+#          max_intervals = max(range_intervals),
+#          min_intervals = min(range_intervals))
+```
