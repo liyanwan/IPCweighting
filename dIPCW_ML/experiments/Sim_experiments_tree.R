@@ -23,8 +23,8 @@ params_list <- list(
 num_obs <- 250
 time_point = 5
 train_prop = 0.7
-num_covariates <- 15
-num_beta <- 15
+num_covariates <- 25
+num_beta <- 25
 rho <- 0.8
 cov_matrix <- matrix(0, nrow = num_covariates, ncol = num_covariates)
 for (i in 1:num_covariates) {
@@ -35,20 +35,31 @@ for (i in 1:num_covariates) {
 
 set.seed(2003)
 X = mvrnorm(n = num_obs, mu = rep(0, num_covariates), Sigma = cov_matrix)
-X_model = mvrnorm(n = num_obs, mu = rep(0, num_covariates), Sigma = cov_matrix)
-colnames(X_model) = paste0("X", 1:num_covariates)
 colnames(X) = paste0("X", 1:num_covariates)
+
 beta = rnorm(num_beta, mean = 0.6, sd = 0.01)
-Y_continuous = generate_Y_continuous(X_model, c(1:num_covariates), beta)+rnorm(num_obs)
-data_tree = as.data.frame(X_model)
+Y_continuous = X[, c(1:num_covariates)] %*% beta
+data_tree = as.data.frame(X[,c(1:num_beta)])
 data_tree$Y_continuous = Y_continuous
 tree_model_fX = rpart(Y_continuous ~ ., data = data_tree,  control = rpart.control(cp = 0.03))
 f_X = predict(tree_model_fX, newdata =as.data.frame(X))
+## lc denotes the risk score
 lc = f_X
-params$lc <- lc
-dt <- simulation_data(num_obs, dist, params, censor_dist, censor_params, time_point, X)
-Y <- data.frame(E = dt$E, sigma = dt$sigma, observed_time = dt$observed_time)
+# lc = Y_continous
 true_surv = (true_survival_function(dist, time_point, params = params))^exp(lc)
+params$lc <- lc
+
+# Used to check if there will be infinite event time in 1000 simulations. (applied to log-normal only)
+results_total_list <- lapply(1:1000, function(i) {
+  set.seed(20+i)
+  params$lc <- lc
+  dt <- simulation_data(num_obs, dist, params, censor_dist, censor_params, time_point, X)
+  dt$event_time
+  if(is.infinite(max(dt$event_time))){
+    print(paste0("infinite", i))
+    break
+  }
+})
 GlobalFunctions = ls(globalenv())
 start_iter = 1
 end_iter = 50
@@ -56,12 +67,17 @@ end_iter = 50
 results_total_list <- foreach(i = start_iter:end_iter,
                               .packages = c("MASS", "dplyr","glmnet", "survival", "caret", "rpart", "mgcv", "yaImpute", "earth"),
                               .export=GlobalFunctions) %dopar% {
+                                set.seed(20+i)
+                                dt <- simulation_data(num_obs, dist, params, censor_dist, censor_params, time_point, X)
+                                dt$M = ifelse(dt$event_time<=5, 1, 0)
+                                Y <- data.frame(E = dt$E, M = dt$M, sigma = dt$sigma, observed_time = dt$observed_time)
+                                set.seed(20+i)
                                 dIPCW_ML_split(time_point = time_point,
                                                X = X,
                                                Y = Y,
                                                train_prop = train_prop,
                                                measure = "Brier_Score",
-                                               range_intervals = 8,
+                                               range_intervals = 1,
                                                true_surv = true_surv,
                                                learner_list = learner_list,
                                                params_list = params_list,
@@ -78,10 +94,11 @@ results_total_list <- foreach(i = start_iter:end_iter,
 results_list = lapply(results_total_list, function(item) item$results_df)
 all_layer_testEP <- lapply(results_total_list, function(item) item$all_layer_testEP)
 combined_df <- bind_rows(results_list)
+brier_name = colnames(results_list[[1]])[6]
 df <- combined_df %>%
   group_by(Method) %>%
-  summarise(across(1:(ncol(combined_df)-1), mean, na.rm = TRUE)) %>%
-  ungroup() %>%
+  summarise(across(1:7, \(x) mean(x, na.rm = TRUE))) %>%  # Compute mean for columns 2 to 7
+  arrange(.data[[brier_name]]) %>%  # Arrange by the second column
   as.data.frame()
 
 

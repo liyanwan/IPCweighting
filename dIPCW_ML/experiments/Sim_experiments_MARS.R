@@ -9,27 +9,48 @@ source("~/IPCweighting/dIPCW_ML/library.R")
 # Define parameters
 dist <- "log-normal"
 params <- list()
+params$mean <- 1.5
+params$sd <- 0.8
+#params$lambda_base = 0.15
 censor_params <- list()
 censor_dist <- "uniform"
 censor_params$start <- 1
 censor_params$end <- 8
-learner_list = list(base_mars_BinnedIPCW)
+learner_list = list(base_mars_BinnedIPCW_all)
 params_list <- list(
-  list(nprune_values = c(1, 3, 5, 8, 11), degree_values = c(1, 2), useMin = TRUE)
+  list(nprune_values = seq(2, 20, by = 2), degree_values = c(1, 2), useMin = TRUE)
 )
-time_point = 5
+
+# covariates information
 num_obs <- 250
-train_prop = 0.7
-num_covariates <- 5
+num_covariates <- 25
+num_beta <- 25
 params$mean <- 1.5
 params$sd <- 0.8
+#params$lambda_base = 0.15
+time_point = 5
+train_prop = 0.7
 set.seed(2003)
 X <- matrix(rnorm(num_obs * num_covariates), nrow = num_obs, ncol = num_covariates)
-lc = 2 * sin(pi * X[,1]) + 1.3 * (X[,2]^3) - 1.5 * X[,3] * X[,4] - 0.3 * abs(X[,5]) + 0.6 * X[, 4]
-params$lc <- lc
-dt <- simulation_data(num_obs, dist, params, censor_dist, censor_params, time_point, X)
-Y <- data.frame(E = dt$E, sigma = dt$sigma, observed_time = dt$observed_time)
+colnames(X) <- paste0("X", 1:num_covariates)
+
+#defining risk score
+lc = 0.2 * sin(pi * X[,1]) + 0.05 * (X[,2]^3) - (0.28 * (X[,3]^2-0.2)) + 0.3 * abs(X[,5]) + 0.15 * X[, 4] # risk score
+summary(lc)
 true_surv = (true_survival_function(dist, time_point, params = params))^exp(lc)
+hist(true_surv)
+
+results_total_list <- lapply(1:1000, function(i) {
+  set.seed(20+i)
+  params$lc <- lc
+  dt <- simulation_data(num_obs, dist, params, censor_dist, censor_params, time_point, X)
+  dt$event_time
+  if(is.infinite(max(dt$event_time))){
+    print(paste0("infinite", i))
+    break
+  }
+})
+
 GlobalFunctions = ls(globalenv())
 start_iter = 1
 end_iter = 50
@@ -59,11 +80,13 @@ results_total_list <- foreach(i = start_iter:end_iter,
 results_list = lapply(results_total_list, function(item) item$results_df)
 all_layer_testEP <- lapply(results_total_list, function(item) item$all_layer_testEP)
 combined_df <- bind_rows(results_list)
+brier_name = colnames(results_list[[1]])[6]
 df <- combined_df %>%
   group_by(Method) %>%
-  summarise(across(1:(ncol(combined_df)-1), mean, na.rm = TRUE)) %>%
-  ungroup() %>%
+  summarise(across(1:7, \(x) mean(x, na.rm = TRUE))) %>%  # Compute mean for columns 2 to 7
+  arrange(.data[[brier_name]]) %>%  # Arrange by the second column
   as.data.frame()
+
 
 
 saveRDS(list(results_list = results_list,
