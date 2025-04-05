@@ -97,7 +97,7 @@ base_glm_BinnedIPCW
 
 -   X: The covariates matrix used to TRAIN the model
 
--   Y: The dataframe which should contain five columns: E, M, event time, sigma, observed_time
+-   Y: The dataframe which should contain five columns: E, M, event_time, sigma, observed_time. It is used to TRAIN the model
 
 -   newX, newY: The new data (test data)
 
