@@ -56,7 +56,7 @@ Y <- data.frame(E = dt$E, M = dt$M, event_time = dt$event_time,sigma = dt$sigma,
 
 ### 2. Review available models to fit the data
 
-There are FOUR available models, **which are the candidate elements for the *learner_list* which we will introduce in next section:**
+There are FOUR available models, **which are the candidate elements for the *learner_list* which we will introduce in next section:** The functions return a list containing the cross-validation dataframe, the fitted ML model using the optimal bin on X and Y, the predicted event probabilities for X_validation, and the selected optimal bin.
 
 1.  base_glm_BinnedIPCW;
 
@@ -91,9 +91,7 @@ base_glm_BinnedIPCW
 #         measure = "C_index")
 ```
 
-Return a list containing the cross-validation dataframe, the GLM model fitted using the optimal bin on X and Y, the predicted event probabilities for X_validation, and the selected optimal bin.
-
-### 3. Method to compare multiple models
+### 3. The two Method to compare multiple models: dIPCW_ML(), dIPCW_ML_split()
 
 -   time_point: The time horizon
 
@@ -121,7 +119,7 @@ params_list <- list(list(useMin = TRUE))
 # Another example:
 learner_list = list(base_glmnet_BinnedIPCW, 
                     base_glmnet_BinnedIPCW)
-params_list <- list(list(lambda_values = 10^seq(-1, -5, length = 50), alpha_num = 0, useMin = TRUE)
+params_list <- list(list(lambda_values = 10^seq(-1, -5, length = 50), alpha_num = 0, useMin = TRUE),
                     list(lambda_values = 10^seq(-1, -5, length = 50), alpha_num = 1, useMin = TRUE))
 # This means we are fitting both ridge and lasso to the same dataset. Each inner list corresponds to the parameters of the learner at the same index.
 ```
