@@ -76,7 +76,7 @@ coxph_with_penalty <- function(train_data, test_X, time_point, measure = NULL, a
 
 ## ---------------------------------------------------------------------------------------------------------------
 #' Build an Additive Cox model and estimate event probabilities on test_X.
-additive_cox <- function(train_data, test_X, time_point, cts.num=5, k = 10, var_threshold = ncol(test_X)){
+additive_cox <- function(train_data, test_X, time_point, cts.num=5, knot = 10){
   var_name = colnames(test_X)
   combined_gam_test_EP = list()
   train_X = train_data[var_name]
@@ -84,35 +84,39 @@ additive_cox <- function(train_data, test_X, time_point, cts.num=5, k = 10, var_
   if (sum(!cts.x) > 0) {
     gam.model <- as.formula(paste("observed_time~", paste(paste("s(",
                                                                 colnames(train_X[, cts.x, drop = FALSE]),
-                                                                ", k = ", k, ")", sep = ""), collapse = "+"), "+", paste(
+                                                                ", k = ", knot, ")", sep = ""), collapse = "+"), "+", paste(
                                                                   colnames(train_X[,!cts.x, drop = FALSE]), collapse = "+")))
   } else {
     filtered_X = train_X[, cts.x, drop = FALSE]
-    expanded_train_data_with_weight = bin_combined_ipcw(interval = c(0, time_point), data = train_data,
-                                                        var_name = var_name, time_point = time_point, 
-                                                        return_type="dataset")
-    expanded_X = expanded_train_data_with_weight[var_name]
-    valid_indices = which(expanded_train_data_with_weight$IPCW > 0)
-    filtered_train_E = expanded_train_data_with_weight$E[valid_indices]
-    filtered_train_X = expanded_X[valid_indices, ]
-    filtered_weights = expanded_train_data_with_weight$IPCW[valid_indices]
-    model_data = data.frame(E = filtered_train_E, filtered_train_X)
-    filtered_var_name = colnames(filtered_train_X)
-    rss_vals = numeric(length(filtered_var_name))
-    model_data = expanded_train_data_with_weight[valid_indices,]
-    for (vi in seq_along(var_name)) {
-      variable_name = var_name[vi]
-      form = as.formula(paste("E ~", variable_name))
-      fit_uni = earth(form,
-                      data = model_data,
-                      glm = list(family = binomial),
-                      weights = filtered_weights)
-      rss_vals[vi] = fit_uni$rss
-    }
-    sig_var_name = filtered_var_name[rank(rss_vals) <= var_threshold]
-    gam.model <- as.formula(paste("observed_time~", paste("s(",
-                                                          sig_var_name,
-                                                          ", k = ", k, ")", sep = "", collapse = "+")))
+    # expanded_train_data_with_weight = bin_combined_ipcw(interval = c(0, time_point), data = train_data,
+    #                                                     var_name = var_name, time_point = time_point, 
+    #                                                     return_type="dataset")
+    # expanded_X = expanded_train_data_with_weight[var_name]
+    # valid_indices = which(expanded_train_data_with_weight$IPCW > 0)
+    #filtered_train_E = expanded_train_data_with_weight$E[valid_indices]
+    #filtered_train_X = expanded_X[valid_indices, ]
+    # filtered_weights = expanded_train_data_with_weight$IPCW[valid_indices]
+    # model_data = data.frame(E = filtered_train_E, filtered_train_X)
+    # filtered_var_name = colnames(filtered_train_X)
+    # rss_vals = numeric(length(filtered_var_name))
+    # model_data = expanded_train_data_with_weight[valid_indices,]
+    # for (vi in seq_along(var_name)) {
+    #   variable_name = var_name[vi]
+    #   form = as.formula(paste("E ~", variable_name))
+    #   fit_uni = earth(form,
+    #                   data = model_data,
+    #                   glm = list(family = binomial),
+    #                   weights = filtered_weights)
+    #   rss_vals[vi] = fit_uni$rss
+    # }
+    # sig_var_name = filtered_var_name[rank(rss_vals) <= var_threshold]
+    sig_var_name = var_name
+    # gam.model <- as.formula(paste("observed_time~", paste("s(",
+    #                                                       sig_var_name,
+    #                                                       ", k = ", k, ")", sep = "", collapse = "+")))
+    gam.model = as.formula(paste("observed_time ~",
+                          paste(paste0("s(", sig_var_name,", k = ",knot, ", bs = 'ts')"), collapse = " + ")))
+    
   }
   if (sum(!cts.x) == length(cts.x)) {
     gam.model <- as.formula(paste("observed_time~", paste(colnames(train_X),

@@ -26,7 +26,7 @@ base_mars_BinnedIPCW <- function(X,
                                  useMin = FALSE,
                                  proxy_data = NULL,
                                  measure = "C_index",
-                                 var_threshold = NULL,
+                                 # var_threshold = NULL,
                                  ...){
   if (is.matrix(X)) {
     X = as.data.frame(X)
@@ -52,7 +52,7 @@ base_mars_BinnedIPCW <- function(X,
                                    k = k, foldid = foldid,
                                    proxy_data = proxy_data,
                                    measure = measure,
-                                   var_threshold = var_threshold,
+                                   # var_threshold = var_threshold,
                                    ...)
   results = returning$results
     optimal_index_measure_row = get_optimal_row_indices_SingleMeasure(results, useMin = useMin, measure = measure)
@@ -67,16 +67,17 @@ base_mars_BinnedIPCW <- function(X,
     filtered_weights = expanded_train_data_with_weight$IPCW[valid_indices]
     rss_vals = numeric(length(var_name))
     model_data = expanded_train_data_with_weight[valid_indices,]
-    for (vi in seq_along(var_name)) {
-      variable_name = var_name[vi]
-      form = as.formula(paste("E ~", variable_name))
-      fit_uni = earth(form,
-                      data = model_data,
-                      glm = list(family = binomial),
-                      weights = filtered_weights)
-      rss_vals[vi] = fit_uni$rss
-    }
-    sig_var_name = var_name[rank(rss_vals) <= var_threshold]
+    # for (vi in seq_along(var_name)) {
+    #   variable_name = var_name[vi]
+    #   form = as.formula(paste("E ~", variable_name))
+    #   fit_uni = earth(form,
+    #                   data = model_data,
+    #                   glm = list(family = binomial),
+    #                   weights = filtered_weights)
+    #   rss_vals[vi] = fit_uni$rss
+    # }
+    # sig_var_name = var_name[rank(rss_vals) <= var_threshold]
+    sig_var_name = var_name
     formula = as.formula(paste("E ~", paste(sig_var_name, collapse = " + ")))
     earth_model = earth(formula,
                         data = model_data,

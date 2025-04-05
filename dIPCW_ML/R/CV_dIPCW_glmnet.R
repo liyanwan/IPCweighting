@@ -53,13 +53,13 @@ fit_glmnet_binnedweights <- function(X,
         totaltest_G = Ghat_newtime(step_function = train_Ghat, 
                                    new_observed_time = test_proxy$observed_time, 
                                    time_point = time_point)
-        total_IPCW = ifelse(test_data$sigma == 0 & test_data$observed_time<=time_point, 0, 1/totaltest_G)
+        total_IPCW = ifelse(is.na(test_data$E), 0, 1/totaltest_G)
         test_IPCW = total_IPCW[1:nrow(test_data)]
       } else {
         test_G = Ghat_newtime(step_function = train_Ghat,
                               new_observed_time = test_data$observed_time,
                               time_point = time_point)
-        test_IPCW = ifelse(test_data$sigma == 0 & test_data$observed_time<=time_point, 0, 1/test_G)
+        test_IPCW = ifelse(is.na(test_data$E), 0, 1/test_G)
       }
       expanded_train_data_with_weight = bin_combined_ipcw(interval = interval, data = train_data,
                                          var_name = var_name, time_point = time_point, return_type = "dataset")

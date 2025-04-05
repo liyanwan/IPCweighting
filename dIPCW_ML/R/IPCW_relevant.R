@@ -6,8 +6,8 @@ Get_Ghat <- function(observed_time, sigma){
                       data = full_dt,
                       method = "marginal")
   step_function <- function(time) {
-    predict(mm$fit, newdata = full_dt, 
-            times = time - min(full_dt$observed_time) * 1e-5, 
+    predict(mm$fit, newdata = full_dt,
+            times = time - min(full_dt$observed_time) * 1e-5,
             level.chaos = 1, mode = "matrix", type = "surv")
   }
   return(step_function)
@@ -101,7 +101,7 @@ bin_combined_ipcw <- function(interval, data, time_point, var_name, return_type=
                          sigma = batch$sigma,
                          time_point = end)
     batch$G = Ghat_newtime(step_function = Ghat, new_observed_time = batch$observed_time, time_point = end)
-    batch$IPCW = ifelse(batch$sigma == 0 & batch$observed_time<=end, 0, numerator/batch$G)
+    batch$IPCW = ifelse(is.na(batch$E), 0, numerator/batch$G)
     if (is.null(total)) {
       total = data.frame(batch)
     } else {
