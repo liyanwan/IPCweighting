@@ -79,6 +79,7 @@ dIPCW_ML <- function(time_point,
   if(include_SA){
     if(any(sapply(learner_list, identical, y = base_mars_BinnedIPCW))){
       add_cox_test_EP = additive_cox(train_data = train_data, test_X = newX, time_point = time_point,
+                                     cts.num = ifelse(!is.null(surv_params$cts.num), surv_params$cts.num, 5),
                                      k = ifelse(!is.null(surv_params$k), surv_params$k, 10))
     }
     if(any(sapply(learner_list, identical, y = base_glmnet_BinnedIPCW))){
