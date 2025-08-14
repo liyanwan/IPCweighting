@@ -74,5 +74,5 @@ Modify **`multiplier`** and **`alpha`** in scripts to change data generation set
 
 
 ## TCGA Data Application 
- - `LGG_ExtractInfo.R`: Extracts and preprocesses gene expression profiles from TCGA.  
+ - `LGG_ExtractInfo.R`: Extracts and preprocesses gene expression profiles from TCGA.  The IDH subtype for each patient is provided in `IDH.csv`, which was extracted by querying TCGA using `lgg.gbm.subtype <- TCGAquery_subtype(tumor = "lgg")`.
  - `LGG_Lasso.R`, `LGG_Tree.R`, `LGG_MARS.R`: Each script compares four model variants to compare their performance for TCGA LGG data.
