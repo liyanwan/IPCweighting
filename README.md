@@ -1,44 +1,78 @@
-# Inverse Probability of Censoring Weighting
+# Binned Inverse Probability of Censoring Weighting
 
-## Experiments
-The `Comparison_models.Rmd` file simulates a right-censored dataset and compares different estimation methods. The following arguments can be specified for the simulations:
+## Overview
+This repository contains the implementation and resources for the project **"Integrating Binning with Inverse Probability of Censoring Weighting for Improved Risk Prediction with Machine Learning"**. The goal of this project is to introduce the **BIPCW** technique and evaluate its performance against other approaches when applied to various classification machine learning models under Cox proportional hazards (CoxPH) settings. The repository includes simulation frameworks that support multiple baseline survival functions and censoring time distributions.
 
- `dist` `censor_dist`: Distribution of event_time and censor_time.
- 
- `seed`: Number of seeds used in the simulations.
- 
- `num_obs`: Number of observations in each dataset.
- 
- `time_point`: A predefined time point. (Default: 5 years)
- 
-We assume the true survival function follows the model: S(t | X_i) = [S_0(t)]^exp(X * beta)
- The file prints the OLS_Error(to be continued) between the true survival function and the estimated survival function, corresponding to the following models:
- 1. Naive estimate
- 2. IPCW (1 bin) estimate
- 3. True baseline survival function and estimated beta (from COX Proportional Hazard model)
- 4. Survival function with estimated baseline survival function and estimated beta (from COX Proportional Hazard model)
+## Example
 
- Available Distribution for event_time:
-   - Exponential
-   - Weibull
-   - Log-logistic
-   - Log-Normal
-Available Distribution for censor_time:
-   - Exponential
-   - Weibull
-   - Log-logistic
-   - Log-normal
-   - Uniform
+```r
+dIPCW_ML_split(
+    time_point = time_point,
+    X,
+    Y,
+    newX,
+    newY,
+    measure = "Brier_Score",
+    range_intervals = 1,
+    true_surv = true_surv,
+    learner_list = learner_list,
+    params_list = params_list,
+    proxy_data = NULL,
+    learner_k = 5,
+    learner_foldid = NULL,
+    include_naive = TRUE,
+    include_SA = TRUE,
+    include_opt = TRUE,
+    max_intervals = 10,
+    min_intervals = 1
+)
+```
 
-The `binned_experiments.Rmd` file simulates a right-censored dataset, finds the optimal number of bins, and compares the performance of binned IPCW with one dataset and that of binned IPCW with n datasets (`n` means the number of bins). The following arguments can be specified:
-   `dist` `censor_dist`: Distribution of event_time and censor_time.
-   `seed`: Number of seeds used in the simulations.
-   `num_obs`: Number of observations in each dataset.
-   `time_point`: A predefined time point. (Default: 5 years)
-   `max_intervals`: Maximum number of intervals. (Default: 80)
-The file generates two plots: 
-    1. OLS_Error(to be continued) vs. the number of intervals for one dataset case.
-    2. OLS_prints vs. the number of intervals for `n` datasets case.
+### Arguments
 
- 
+- time_point: Time horizon.  
+- **X: Covariates matrix for training.  
+- Y: Data frame with columns: `E`, `M`, `event time`, `sigma`, `observed_time` (training data).  
+- newX, newY: Test data.  
+- measure: Tuning selection metric (e.g., `"Brier_Score"`).  
+- range_intervals: Grid of positive integers for tuning `bins`.  
+- true_surv: True survival probabilities for `newX`.  
+- learner_list: List of learner functions.  
+- params_list: Nested list of parameters for each learner.  
+- proxy_data: Additional data for computing `test_IPCW` (set to `NULL` in experiments).  
+- learner_k, learner_foldid: Cross-validation settings. If `learner_foldid` is `NULL`, folds are generated using `learner_k`. All models share the same folds.  
+- include_naive: `TRUE` to fit naive models.  
+- include_SA: `TRUE` to fit survival models corresponding to learners.  
+- surv_params: Default `list()`; only set when fitting additive Cox with custom knots.  
+- include_opt: `TRUE` to include binned IPCW models. Adjust bin range with `max_intervals` and `min_intervals`.
 
+
+
+## Available Distributions
+
+### Baseline Survival Functions
+- Exponential, Weibull, Log-normal, Log-logistic  
+
+### Censor Time Distributions
+- Exponential, Weibull, Log-normal, Log-logistic, Uniform  
+
+## Simulation Experiments
+
+Simulation scripts:
+- `Sim_Experiments_Lasso.R`  
+- `Sim_Experiments_Tree.R`  
+- `Sim_Experiments_MARS.R`  
+
+These compare:
+- Survival analysis models  
+- BIPCW + ML  
+- IPCW + ML  
+- Naive ML  
+
+Performance is measured for the 5-year overall survival probability.  
+Modify **`multiplier`** and **`alpha`** in scripts to change data generation settings.
+
+
+## TCGA Data Application 
+ - `LGG_ExtractInfo.R`: Extracts and preprocesses gene expression profiles from TCGA.  
+ - `LGG_Lasso.R`, `LGG_Tree.R`, `LGG_MARS.R`: Each script compares four model variants to compare their performance for TCGA LGG data.
