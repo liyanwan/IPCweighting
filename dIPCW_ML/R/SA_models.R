@@ -48,15 +48,11 @@ coxph_with_penalty <- function(train_data, test_X, time_point, measure = NULL, a
     } else {
       stop("Invalid measure. Please use 'C_index', 'Log_Likelihood_Neg', or 'Brier_Score'.")
     }
-    test_survfit <- survfit(formula = model, 
-                            s = ifelse(useMin, "lambda.min", "lambda.1se"), 
-                            x = as.matrix(train_X), 
-                            y = Y_glmnet, 
-                            newx = as.matrix(test_X))
-    time_points = test_survfit$time
-    index = max(which(time_points <= time_point))
-    coxph_penal_survival_probability = test_survfit$surv[index, ]
-    coxph_penal_event_probability = 1 - coxph_penal_survival_probability
+    pred = predict(model, newx = as.matrix(test_X), type = "response", s = "lambda.min") #exp(X*beta.hat)
+    surv = survfit(Surv(train_data$observed_time, train_data$sigma)~1)
+    t0 = summary(surv, times = time_point)
+    base = t0$surv
+    coxph_penal_event_probability = 1-base^pred
     penalized_type = switch(
       as.character(alpha),
       "0" = "CoxPH Ridge",
@@ -113,7 +109,7 @@ additive_cox <- function(train_data, test_X, time_point, cts.num=5, knot = 10){
     sig_var_name = var_name
     # gam.model <- as.formula(paste("observed_time~", paste("s(",
     #                                                       sig_var_name,
-    #                                                       ", k = ", k, ")", sep = "", collapse = "+")))
+    #                                                       ", k = ", knot, ")", sep = "", collapse = "+")))
     gam.model = as.formula(paste("observed_time ~",
                           paste(paste0("s(", sig_var_name,", k = ",knot, ", bs = 'ts')"), collapse = " + ")))
     
