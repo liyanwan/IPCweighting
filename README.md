@@ -6,23 +6,24 @@ This repository contains the implementation and resources for the project **"Int
 ## Example
 
 ```r
-dIPCW_ML_split(
-    time_point = time_point,
+BIPCW_ML(
+    time_point,
     X,
     Y,
-    newX,
-    newY,
-    measure = "Brier_Score",
-    range_intervals = 1,
-    true_surv = true_surv,
-    learner_list = learner_list,
-    params_list = params_list,
+    newX = NULL,
+    newY = NULL,
+    measure = c('C_index', 'Log_Likelihood_Neg', "Brier_Score")
+    range_intervals,
+    true_surv = NULL,
+    learner_list,
+    params_list,
     proxy_data = NULL,
     learner_k = 5,
     learner_foldid = NULL,
-    include_naive = TRUE,
-    include_SA = TRUE,
-    include_opt = TRUE,
+    include_naive = FALSE,
+    include_SA = FALSE,
+    surv_params = list(),
+    include_opt = FALSE,
     max_intervals = 10,
     min_intervals = 1
 )
@@ -31,10 +32,10 @@ dIPCW_ML_split(
 ### Arguments
 
 - time_point: Time horizon.  
-- **X: Covariates matrix for training.  
+- X: Covariates matrix for training.  
 - Y: Data frame with columns: `E`, `M`, `event time`, `sigma`, `observed_time` (training data).  
 - newX, newY: Test data.  
-- measure: Tuning selection metric (e.g., `"Brier_Score"`).  
+- measure: Tuning selection metric. One of c('C_index', 'Log_Likelihood_Neg', 'Brier_Score')  
 - range_intervals: Grid of positive integers for tuning `bins`.  
 - true_surv: True survival probabilities for `newX`.  
 - learner_list: List of learner functions.  
@@ -43,7 +44,7 @@ dIPCW_ML_split(
 - learner_k, learner_foldid: Cross-validation settings. If `learner_foldid` is `NULL`, folds are generated using `learner_k`. All models share the same folds.  
 - include_naive: `TRUE` to fit naive models.  
 - include_SA: `TRUE` to fit survival models corresponding to learners.  
-- surv_params: Default `list()`; only set when fitting additive Cox with custom knots.  
+- surv_params: Default `list()`; only set when fitting glm, glmnet, MARS and Neural Network. The length of surv_params should be equal to the length of params_list.
 - include_opt: `TRUE` to include binned IPCW models. Adjust bin range with `max_intervals` and `min_intervals`.
 
 
@@ -54,25 +55,23 @@ dIPCW_ML_split(
 - Exponential, Weibull, Log-normal, Log-logistic  
 
 ### Censor Time Distributions
-- Exponential, Weibull, Log-normal, Log-logistic, Uniform  
+- Exponential, Weibull, Log-normal, Log-logistic, Uniform, Gamma  
 
 ## Simulation Experiments
+We adapt several machine learning models to the BIPCW framework, including GLM, GLMnet, Classification Tree, MARS, and Neural Networks.
 
-Simulation scripts:
-- `Sim_Experiments_Lasso.R`  
-- `Sim_Experiments_Tree.R`  
-- `Sim_Experiments_MARS.R`  
+The following scripts implement the experiments:
+ - `Sim_Experiments_Lasso.R`
+ - `Sim_Experiments_Tree.R`
+ - `Sim_Experiments_MARS.R`
 
-These compare:
-- Survival analysis models  
-- BIPCW + ML  
-- IPCW + ML  
-- Naive ML  
+These experiments compare the performance of: Traditional survival analysis models, BIPCW + ML, IPCW + ML and Naïve ML
 
-Performance is measured for the 5-year overall survival probability.  
+Performance is evaluated using the concordance index (C-index), AUC, negative log-likelihood, and Brier score, based on predicted 5-year overall survival probabilities.
+
 Modify **`multiplier`** and **`alpha`** in scripts to change data generation settings.
 
 
 ## TCGA Data Application 
  - `LGG_ExtractInfo.R`: Extracts and preprocesses gene expression profiles from TCGA.  The IDH subtype for each patient is provided in `IDH.csv`, which was extracted by querying TCGA using `lgg.gbm.subtype <- TCGAquery_subtype(tumor = "lgg")`.
- - `LGG_Lasso.R`, `LGG_Tree.R`, `LGG_MARS.R`: Each script compares four model variants to compare their performance for TCGA LGG data.
+ - `LGG_Lasso.R`, `LGG_Tree.R`, `LGG_MARS.R`, `LGG_nn.R`: Each script compares three model variants (except Naive) to compare their performance for TCGA LGG data.
